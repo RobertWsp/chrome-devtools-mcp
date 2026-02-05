@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/ChromeDevTools/chrome-devtools-mcp/compare/chrome-devtools-mcp-v0.16.0...chrome-devtools-mcp-v0.17.0) (2026-02-05)
+
+
+### 🎉 Features
+
+* Integrate CrUX data into performance trace summaries ([#733](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/733)) ([b747f9d](https://github.com/ChromeDevTools/chrome-devtools-mcp/commit/b747f9d74a12d2119b6531476b2f88ab66be0ff8))
+
 ## [0.16.0](https://github.com/ChromeDevTools/chrome-devtools-mcp/compare/chrome-devtools-mcp-v0.15.1...chrome-devtools-mcp-v0.16.0) (2026-02-04)
 
 
