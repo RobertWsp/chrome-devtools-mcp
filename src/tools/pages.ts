@@ -24,23 +24,25 @@ export const listPages = defineTool({
   },
 });
 
-export const selectPage = defineTool({
-  name: 'select_page',
-  description: `Select a page as a context for future tool calls.`,
+export const switchTab = defineTool({
+  name: 'switch_tab',
+  description: `Switch the selected tab that subsequent tool calls act on. Only relevant when more than one tab is open; with a single tab the selected tab is implicit and no pageId is needed.`,
   annotations: {
     category: ToolCategory.NAVIGATION,
     readOnlyHint: true,
+    // Surfaced on demand: only registered once a session has multiple tabs.
+    conditions: ['multiTab'],
   },
   schema: {
     pageId: zod
       .number()
       .describe(
-        `The ID of the page to select. Call ${listPages.name} to get available pages.`,
+        `The ID of the tab to select. Call ${listPages.name} to get available tabs.`,
       ),
     bringToFront: zod
       .boolean()
       .optional()
-      .describe('Whether to focus the page and bring it to the top.'),
+      .describe('Whether to focus the tab and bring it to the top.'),
   },
   handler: async (request, response, context) => {
     const page = context.getPageById(request.params.pageId);
@@ -93,21 +95,10 @@ export const newPage = defineTool({
       .describe(
         'Whether to open the page in the background without bringing it to the front. Default is false (foreground).',
       ),
-    isolatedContext: zod
-      .string()
-      .optional()
-      .describe(
-        'If specified, the page is created in an isolated browser context with the given name. ' +
-          'Pages in the same browser context share cookies and storage. ' +
-          'Pages in different browser contexts are fully isolated.',
-      ),
     ...timeoutSchema,
   },
   handler: async (request, response, context) => {
-    const page = await context.newPage(
-      request.params.background,
-      request.params.isolatedContext,
-    );
+    const page = await context.newPage(request.params.background);
 
     await context.waitForEventsAfterAction(
       async () => {

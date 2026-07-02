@@ -146,10 +146,32 @@ interface McpLaunchOptions {
   ignoreDefaultChromeArgs?: string[];
   devtools: boolean;
   enableExtensions?: boolean;
+  /**
+   * When true the browser process survives the MCP host: it is not piped to
+   * the host stdio and does not close on the host receiving SIGINT/SIGTERM/
+   * SIGHUP. The caller is responsible for persisting the wsEndpoint so the
+   * browser can be reconnected later.
+   */
+  detached?: boolean;
+}
+
+/**
+ * Reconnects to a previously launched, still-running detached browser using a
+ * persisted WebSocket endpoint. Throws if the endpoint is dead.
+ */
+export async function reconnectBrowser(wsEndpoint: string): Promise<Browser> {
+  const connectOptions: Parameters<typeof puppeteer.connect>[0] = {
+    browserWSEndpoint: wsEndpoint,
+    targetFilter: makeTargetFilter(),
+    defaultViewport: null,
+    handleDevToolsAsPage: true,
+  };
+  logger('Reconnecting Puppeteer to detached browser', wsEndpoint);
+  return await puppeteer.connect(connectOptions);
 }
 
 export async function launch(options: McpLaunchOptions): Promise<Browser> {
-  const {channel, executablePath, headless, isolated} = options;
+  const {channel, executablePath, headless, isolated, detached} = options;
   const profileDirName =
     channel && channel !== 'stable'
       ? `chrome-profile-${channel}`
@@ -196,13 +218,18 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
       executablePath,
       defaultViewport: null,
       userDataDir,
-      pipe: true,
+      // A detached browser must expose a WS endpoint (pipe has no endpoint to
+      // reconnect to) and must outlive the host process/signals.
+      pipe: !detached,
       headless,
       args,
       ignoreDefaultArgs: ignoreDefaultArgs,
       acceptInsecureCerts: options.acceptInsecureCerts,
       handleDevToolsAsPage: true,
       enableExtensions: options.enableExtensions,
+      ...(detached
+        ? {handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false}
+        : {}),
     });
     if (options.logFile) {
       // FIXME: we are probably subscribing too late to catch startup logs. We

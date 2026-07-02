@@ -438,6 +438,7 @@ export class McpResponse implements Response {
       };
       pages?: object[];
       pagination?: object;
+      tabNotices?: string[];
     } = {};
 
     const response = [`# ${toolName} response`];
@@ -502,33 +503,27 @@ Call ${handleDialog.name} to handle it before continuing.`);
     }
 
     if (this.#includePages) {
+      const pages = context.getPages();
+      // In single-tab mode the tab ID is implicit and intentionally not
+      // surfaced: the model never needs it. IDs appear only once multiple
+      // tabs exist and tab-targeting becomes necessary.
+      const multiTab = context.hasMultipleTabs();
       const parts = [`## Pages`];
-      for (const page of context.getPages()) {
-        const isolatedContextName = context.getIsolatedContextName(page);
-        const contextLabel = isolatedContextName
-          ? ` isolatedContext=${isolatedContextName}`
-          : '';
+      for (const page of pages) {
+        const selected = context.isPageSelected(page) ? ' [selected]' : '';
         parts.push(
-          `${context.getPageId(page)}: ${page.url()}${context.isPageSelected(page) ? ' [selected]' : ''}${contextLabel}`,
+          multiTab
+            ? `${context.getPageId(page)}: ${page.url()}${selected}`
+            : `${page.url()}${selected}`,
         );
       }
       response.push(...parts);
-      structuredContent.pages = context.getPages().map(page => {
-        const isolatedContextName = context.getIsolatedContextName(page);
-        const entry: {
-          id: number | undefined;
-          url: string;
-          selected: boolean;
-          isolatedContext?: string;
-        } = {
-          id: context.getPageId(page),
+      structuredContent.pages = pages.map(page => {
+        return {
+          id: multiTab ? context.getPageId(page) : undefined,
           url: page.url(),
           selected: context.isPageSelected(page),
         };
-        if (isolatedContextName) {
-          entry.isolatedContext = isolatedContextName;
-        }
-        return entry;
       });
     }
 
@@ -602,8 +597,21 @@ Call ${handleDialog.name} to handle it before continuing.`);
       }
     }
 
-    if (this.#networkRequestsOptions?.include && data.networkRequests) {
-      const requests = data.networkRequests;
+    if (this.#networkRequestsOptions?.include) {
+      let requests = context.getNetworkRequests(
+        this.#networkRequestsOptions?.includePreservedRequests,
+      );
+
+      // Apply resource type filtering if specified
+      if (this.#networkRequestsOptions.resourceTypes?.length) {
+        const normalizedTypes = new Set(
+          this.#networkRequestsOptions.resourceTypes,
+        );
+        requests = requests.filter(request => {
+          const type = request.resourceType();
+          return normalizedTypes.has(type);
+        });
+      }
 
       response.push('## Network requests');
       if (requests.length) {
@@ -615,7 +623,7 @@ Call ${handleDialog.name} to handle it before continuing.`);
         response.push(...paginationData.info);
         if (data.networkRequests) {
           structuredContent.networkRequests = [];
-          for (const formatter of paginationData.items) {
+          for (const formatter of data.networkRequests) {
             response.push(formatter.toString());
             structuredContent.networkRequests.push(formatter.toJSON());
           }
@@ -647,6 +655,16 @@ Call ${handleDialog.name} to handle it before continuing.`);
       }
     }
 
+    // Tab lifecycle notices (multi-tab onset, idle tabs) are appended last so
+    // they are the final thing the model reads. Centralizing them here keeps
+    // McpResponse the single source of truth for the response text, rather
+    // than having callers mutate the content array after the fact.
+    const tabNotices = this.#collectTabNotices(context);
+    if (tabNotices.length) {
+      response.push(`## Tab notices`, ...tabNotices);
+      structuredContent.tabNotices = tabNotices;
+    }
+
     const text: TextContent = {
       type: 'text',
       text: response.join('\n'),
@@ -662,6 +680,16 @@ Call ${handleDialog.name} to handle it before continuing.`);
       content: [text, ...images],
       structuredContent,
     };
+  }
+
+  #collectTabNotices(context: McpContext): string[] {
+    const notices: string[] = [];
+    const multiTabNotice = context.consumeMultiTabNotice();
+    if (multiTabNotice) {
+      notices.push(multiTabNotice);
+    }
+    notices.push(...context.consumeIdleTabNotices());
+    return notices;
   }
 
   #dataWithPagination<T>(data: T[], pagination?: PaginationOptions) {

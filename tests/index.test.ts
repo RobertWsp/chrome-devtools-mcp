@@ -47,17 +47,30 @@ describe('e2e', () => {
       await client.close();
     }
   }
+  async function createSession(client: Client): Promise<string> {
+    const result = await client.callTool({
+      name: 'create_session',
+      arguments: {headless: true},
+    });
+    const text = (result.content as Array<{type: string; text: string}>)[0]
+      .text;
+    const match = text.match(/\*\*sessionId\*\*: `([^`]+)`/);
+    assert.ok(match, `could not parse sessionId from: ${text}`);
+    return match[1];
+  }
+
   it('calls a tool', async () => {
     await withClient(async client => {
+      const sessionId = await createSession(client);
       const result = await client.callTool({
         name: 'list_pages',
-        arguments: {},
+        arguments: {sessionId},
       });
       assert.deepStrictEqual(result, {
         content: [
           {
             type: 'text',
-            text: '# list_pages response\n## Pages\n1: about:blank [selected]',
+            text: '# list_pages response\n## Pages\nabout:blank [selected]',
           },
         ],
       });
@@ -66,19 +79,20 @@ describe('e2e', () => {
 
   it('calls a tool multiple times', async () => {
     await withClient(async client => {
+      const sessionId = await createSession(client);
       let result = await client.callTool({
         name: 'list_pages',
-        arguments: {},
+        arguments: {sessionId},
       });
       result = await client.callTool({
         name: 'list_pages',
-        arguments: {},
+        arguments: {sessionId},
       });
       assert.deepStrictEqual(result, {
         content: [
           {
             type: 'text',
-            text: '# list_pages response\n## Pages\n1: about:blank [selected]',
+            text: '# list_pages response\n## Pages\nabout:blank [selected]',
           },
         ],
       });
@@ -141,5 +155,38 @@ describe('e2e', () => {
       },
       ['--experimental-interop-tools'],
     );
+  });
+
+  it('exposes switch_tab on demand once a session goes multi-tab', async () => {
+    await withClient(async client => {
+      const sessionId = await createSession(client);
+
+      // Single tab: switch_tab is not exposed and pageIds are hidden.
+      let {tools} = await client.listTools();
+      assert.strictEqual(
+        tools.find(t => t.name === 'switch_tab'),
+        undefined,
+        'switch_tab should be hidden with a single tab',
+      );
+
+      // Open a second tab.
+      const opened = await client.callTool({
+        name: 'new_page',
+        arguments: {sessionId, url: 'about:blank'},
+      });
+      const openedText = (
+        opened.content as Array<{type: string; text: string}>
+      )[0].text;
+      // Multi-tab notice is injected and pageIds are now visible.
+      assert.match(openedText, /## Tab notices/);
+      assert.match(openedText, /switch_tab/);
+
+      // switch_tab is now exposed.
+      ({tools} = await client.listTools());
+      assert.ok(
+        tools.find(t => t.name === 'switch_tab'),
+        'switch_tab should be exposed once multi-tab',
+      );
+    });
   });
 });

@@ -11,6 +11,9 @@ Chrome DevTools for reliable automation, in-depth debugging, and performance ana
 
 ## Key features
 
+- **Multi-session support**: Run multiple isolated Chrome instances simultaneously,
+  each identified by a unique `sessionId`. Perfect for parallel testing, A/B
+  comparisons, and multi-account workflows.
 - **Get performance insights**: Uses [Chrome
   DevTools](https://github.com/ChromeDevTools/devtools-frontend) to record
   traces and extract actionable performance insights.
@@ -113,33 +116,11 @@ Chrome DevTools MCP will not start the browser instance automatically using this
 
 <details>
   <summary>Claude Code</summary>
-
-**Install via CLI (MCP only)**
-
-Use the Claude Code CLI to add the Chrome DevTools MCP server (<a href="https://code.claude.com/docs/en/mcp">guide</a>):
+    Use the Claude Code CLI to add the Chrome DevTools MCP server (<a href="https://code.claude.com/docs/en/mcp">guide</a>):
 
 ```bash
 claude mcp add chrome-devtools --scope user npx chrome-devtools-mcp@latest
 ```
-
-**Install as a Plugin (MCP + Skills)**
-
-> [!NOTE]  
-> If you already had Chrome DevTools MCP installed previously for Claude Code, make sure to remove it first from your installation and configuration files.
-
-To install Chrome DevTools MCP with skills, add the marketplace registry in Claude Code:
-
-```sh
-/plugin marketplace add ChromeDevTools/chrome-devtools-mcp
-```
-
-Then, install the plugin:
-
-```sh
-/plugin install chrome-devtools-mcp
-```
-
-Restart Claude Code to have the MCP server and skills load (check with `/skills`).
 
 </details>
 
@@ -150,7 +131,7 @@ Restart Claude Code to have the MCP server and skills load (check with `/skills`
 
 <details>
   <summary>Codex</summary>
-  Follow the <a href="https://developers.openai.com/codex/mcp/#configure-with-the-cli">configure MCP guide</a>
+  Follow the <a href="https://github.com/openai/codex/blob/main/docs/advanced.md#model-context-protocol-mcp">configure MCP guide</a>
   using the standard config from above. You can also install the Chrome DevTools MCP server using the Codex CLI:
 
 ```bash
@@ -289,30 +270,6 @@ Or, from the IDE **Activity Bar** > `Kiro` > `MCP Servers` > `Click Open MCP Con
 </details>
 
 <details>
-  <summary>Katalon Studio</summary>
-
-The Chrome DevTools MCP server can be used with <a href="https://docs.katalon.com/katalon-studio/studioassist/mcp-servers/setting-up-chrome-devtools-mcp-server-for-studioassist">Katalon StudioAssist</a> via an MCP proxy.
-
-**Step 1:** Install the MCP proxy by following the <a href="https://docs.katalon.com/katalon-studio/studioassist/mcp-servers/setting-up-mcp-proxy-for-stdio-mcp-servers">MCP proxy setup guide</a>.
-
-**Step 2:** Start the Chrome DevTools MCP server with the proxy:
-
-```bash
-mcp-proxy --transport streamablehttp --port 8080 -- npx -y chrome-devtools-mcp@latest
-```
-
-**Note:** You may need to pick another port if 8080 is already in use.
-
-**Step 3:** In Katalon Studio, add the server to StudioAssist with the following settings:
-
-- **Connection URL:** `http://127.0.0.1:8080/mcp`
-- **Transport type:** `HTTP`
-
-Once connected, the Chrome DevTools MCP tools will be available in StudioAssist.
-
-</details>
-
-<details>
   <summary>OpenCode</summary>
 
 Add the following configuration to your `opencode.json` file. If you don't have one, create it at `~/.config/opencode/opencode.json` (<a href="https://opencode.ai/docs/mcp-servers">guide</a>):
@@ -390,8 +347,11 @@ Check the performance of https://developers.chrome.com
 
 Your MCP client should open the browser and record a performance trace.
 
+> [!IMPORTANT]  
+> All tools require a `sessionId` parameter. You must call `create_session` first to obtain one. The returned `sessionId` must be passed to every subsequent tool call.
+
 > [!NOTE]  
-> The MCP server will start the browser automatically once the MCP client uses a tool that requires a running browser instance. Connecting to the Chrome DevTools MCP server on its own will not automatically start the browser.
+> Each session launches an isolated Chrome instance. Multiple sessions can run simultaneously for parallel testing. Use `list_sessions` to see active sessions and `close_session` to clean up when done.
 
 ## Tools
 
@@ -399,6 +359,10 @@ If you run into any issues, checkout our [troubleshooting guide](./docs/troubles
 
 <!-- BEGIN AUTO GENERATED TOOLS -->
 
+- **Session management** (3 tools)
+  - [`close_session`](docs/tool-reference.md#close_session)
+  - [`create_session`](docs/tool-reference.md#create_session)
+  - [`list_sessions`](docs/tool-reference.md#list_sessions)
 - **Input automation** (8 tools)
   - [`click`](docs/tool-reference.md#click)
   - [`drag`](docs/tool-reference.md#drag)
@@ -408,12 +372,11 @@ If you run into any issues, checkout our [troubleshooting guide](./docs/troubles
   - [`hover`](docs/tool-reference.md#hover)
   - [`press_key`](docs/tool-reference.md#press_key)
   - [`upload_file`](docs/tool-reference.md#upload_file)
-- **Navigation automation** (6 tools)
+- **Navigation automation** (5 tools)
   - [`close_page`](docs/tool-reference.md#close_page)
   - [`list_pages`](docs/tool-reference.md#list_pages)
   - [`navigate_page`](docs/tool-reference.md#navigate_page)
   - [`new_page`](docs/tool-reference.md#new_page)
-  - [`select_page`](docs/tool-reference.md#select_page)
   - [`wait_for`](docs/tool-reference.md#wait_for)
 - **Emulation** (2 tools)
   - [`emulate`](docs/tool-reference.md#emulate)
@@ -495,9 +458,10 @@ The Chrome DevTools MCP server supports the following configuration option:
   If enabled, ignores errors relative to self-signed and expired certificates. Use with caution.
   - **Type:** boolean
 
-- **`--experimentalScreencast`/ `--experimental-screencast`**
-  Exposes experimental screencast tools (requires ffmpeg). Install ffmpeg https://www.ffmpeg.org/download.html and ensure it is available in the MCP server PATH.
+- **`--persistSessions`/ `--persist-sessions`**
+  Keep browser sessions alive across server restarts. Sessions are launched detached with a per-session profile and reconnected on the next start.
   - **Type:** boolean
+  - **Default:** `false`
 
 - **`--chromeArg`/ `--chrome-arg`**
   Additional arguments for Chrome. Only applies when Chrome is launched by chrome-devtools-mcp.
@@ -577,10 +541,51 @@ You can also run `npx chrome-devtools-mcp@latest --help` to see all available co
 
 ## Concepts
 
+### Multi-session support
+
+The Chrome DevTools MCP server supports running multiple Chrome browser sessions simultaneously. Each session is an isolated Chrome instance with its own pages, cookies, and state.
+
+#### Workflow
+
+1. **Create a session** — call `create_session` to launch a new Chrome instance. You receive a unique `sessionId`.
+2. **Use tools** — pass the `sessionId` to every tool call (`click`, `navigate_page`, `take_screenshot`, etc.).
+3. **Close the session** — call `close_session` when done to shut down the Chrome instance and free resources.
+
+```
+# Step 1: Create two sessions
+create_session(label="desktop", viewport="1920x1080")  → sessionId: "a1b2c3d4"
+create_session(label="mobile", viewport="375x812", headless=true)  → sessionId: "e5f6g7h8"
+
+# Step 2: Use tools with the session ID
+navigate_page(sessionId="a1b2c3d4", url="https://example.com")
+navigate_page(sessionId="e5f6g7h8", url="https://example.com")
+take_screenshot(sessionId="a1b2c3d4")
+take_screenshot(sessionId="e5f6g7h8")
+
+# Step 3: Clean up
+close_session(sessionId="a1b2c3d4")
+close_session(sessionId="e5f6g7h8")
+```
+
+#### Session parameters
+
+| Parameter  | Type    | Description                                                |
+| ---------- | ------- | ---------------------------------------------------------- |
+| `headless` | boolean | Run in headless (no UI) mode. Default: `false`.            |
+| `viewport` | string  | Initial viewport size, e.g. `"1280x720"`.                  |
+| `label`    | string  | Human-readable label, e.g. `"login-test"`.                 |
+| `url`      | string  | URL to navigate to after creation. Default: `about:blank`. |
+
+#### Session isolation
+
+- Each session uses a temporary user data directory that is automatically cleaned up when the session closes.
+- Sessions do not share cookies, localStorage, or any browser state.
+- Operations within a session are serialized (mutex-protected), but different sessions run in parallel.
+- If a browser disconnects unexpectedly, the session is automatically purged.
+
 ### User data directory
 
-`chrome-devtools-mcp` starts a Chrome's stable channel instance using the following user
-data directory:
+When connecting to a running Chrome instance (via `--browser-url` or `--autoConnect`), Chrome uses the following user data directory:
 
 - Linux / macOS: `$HOME/.cache/chrome-devtools-mcp/chrome-profile-$CHANNEL`
 - Windows: `%HOMEPATH%/.cache/chrome-devtools-mcp/chrome-profile-$CHANNEL`
@@ -719,4 +724,11 @@ Please consult [these instructions](./docs/debugging-android.md).
 
 ## Known limitations
 
-See [Troubleshooting](./docs/troubleshooting.md).
+### Operating system sandboxes
+
+Some MCP clients allow sandboxing the MCP server using macOS Seatbelt or Linux
+containers. If sandboxes are enabled, `chrome-devtools-mcp` is not able to start
+Chrome that requires permissions to create its own sandboxes. As a workaround,
+either disable sandboxing for `chrome-devtools-mcp` in your MCP client or use
+`--browser-url` to connect to a Chrome instance that you start manually outside
+of the MCP client sandbox.

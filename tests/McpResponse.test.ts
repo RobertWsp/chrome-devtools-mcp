@@ -283,7 +283,7 @@ describe('McpResponse', () => {
 
   it('adds throttling setting when it is not null', async t => {
     await withMcpContext(async (response, context) => {
-      await context.emulate({networkConditions: 'Slow 3G'});
+      context.setNetworkConditions('Slow 3G');
       const {content, structuredContent} = await response.handle(
         'test',
         context,
@@ -302,7 +302,7 @@ describe('McpResponse', () => {
         'test',
         context,
       );
-      await context.emulate({networkConditions: null});
+      context.setNetworkConditions(null);
       assert.equal(content[0].type, 'text');
       assert.strictEqual(getTextContent(content[0]), `# test response`);
       t.assert.snapshot?.(
@@ -329,7 +329,7 @@ describe('McpResponse', () => {
 
   it('adds cpu throttling setting when it is over 1', async t => {
     await withMcpContext(async (response, context) => {
-      await context.emulate({cpuThrottlingRate: 4});
+      context.setCpuThrottlingRate(4);
       const {content, structuredContent} = await response.handle(
         'test',
         context,
@@ -343,7 +343,7 @@ describe('McpResponse', () => {
 
   it('does not include cpu throttling setting when it is 1', async t => {
     await withMcpContext(async (response, context) => {
-      await context.emulate({cpuThrottlingRate: 1});
+      context.setCpuThrottlingRate(1);
       const {content, structuredContent} = await response.handle(
         'test',
         context,
@@ -357,9 +357,7 @@ describe('McpResponse', () => {
 
   it('adds viewport emulation setting when it is set', async t => {
     await withMcpContext(async (response, context) => {
-      await context.emulate({
-        viewport: {width: 400, height: 400, deviceScaleFactor: 1},
-      });
+      context.setViewport({width: 400, height: 400, deviceScaleFactor: 1});
       const {content, structuredContent} = await response.handle(
         'test',
         context,
@@ -373,7 +371,7 @@ describe('McpResponse', () => {
 
   it('adds userAgent emulation setting when it is set', async t => {
     await withMcpContext(async (response, context) => {
-      await context.emulate({userAgent: 'MyUA'});
+      context.setUserAgent('MyUA');
       const {content, structuredContent} = await response.handle(
         'test',
         context,
@@ -387,7 +385,7 @@ describe('McpResponse', () => {
 
   it('adds color scheme emulation setting when it is set', async t => {
     await withMcpContext(async (response, context) => {
-      await context.emulate({colorScheme: 'dark'});
+      context.setColorScheme('dark');
       const {content, structuredContent} = await response.handle(
         'test',
         context,

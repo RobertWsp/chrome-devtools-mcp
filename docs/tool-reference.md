@@ -1,7 +1,11 @@
 <!-- AUTO GENERATED DO NOT EDIT - run 'npm run docs' to update-->
 
-# Chrome DevTools MCP Tool Reference (~6719 cl100k_base tokens)
+# Chrome DevTools MCP Tool Reference
 
+- **[Session management](#session-management)** (3 tools)
+  - [`close_session`](#close_session)
+  - [`create_session`](#create_session)
+  - [`list_sessions`](#list_sessions)
 - **[Input automation](#input-automation)** (8 tools)
   - [`click`](#click)
   - [`drag`](#drag)
@@ -11,12 +15,11 @@
   - [`hover`](#hover)
   - [`press_key`](#press_key)
   - [`upload_file`](#upload_file)
-- **[Navigation automation](#navigation-automation)** (6 tools)
+- **[Navigation automation](#navigation-automation)** (5 tools)
   - [`close_page`](#close_page)
   - [`list_pages`](#list_pages)
   - [`navigate_page`](#navigate_page)
   - [`new_page`](#new_page)
-  - [`select_page`](#select_page)
   - [`wait_for`](#wait_for)
 - **[Emulation](#emulation)** (2 tools)
   - [`emulate`](#emulate)
@@ -34,6 +37,39 @@
   - [`list_console_messages`](#list_console_messages)
   - [`take_screenshot`](#take_screenshot)
   - [`take_snapshot`](#take_snapshot)
+
+## Session management
+
+### `close_session`
+
+**Description:** Closes a Chrome browser session and its associated browser instance. The sessionId cannot be used after closing.
+
+**Parameters:**
+
+- **sessionId** (string) **(required)**: The session ID to close.
+
+---
+
+### `create_session`
+
+**Description:** Creates a new Chrome browser session and returns its unique session ID. Each session runs an isolated Chrome instance. You MUST use the returned sessionId in all subsequent tool calls. Multiple sessions can run simultaneously for parallel testing.
+
+**Parameters:**
+
+- **headless** (boolean) _(optional)_: Whether to run in headless (no UI) mode. Default is false.
+- **label** (string) _(optional)_: A human-readable label for this session, e.g. "login-test" or "mobile-view".
+- **url** (string) _(optional)_: URL to navigate to after creating the session. If omitted, opens about:blank.
+- **viewport** (string) _(optional)_: Initial viewport size, e.g. "1280x720". If omitted, uses browser default.
+
+---
+
+### `list_sessions`
+
+**Description:** Lists all active Chrome browser sessions with their session IDs, creation times, and connection status.
+
+**Parameters:** None
+
+---
 
 ## Input automation
 
@@ -172,19 +208,7 @@
 
 - **url** (string) **(required)**: URL to load in a new page.
 - **background** (boolean) _(optional)_: Whether to open the page in the background without bringing it to the front. Default is false (foreground).
-- **isolatedContext** (string) _(optional)_: If specified, the page is created in an isolated browser context with the given name. Pages in the same browser context share cookies and storage. Pages in different browser contexts are fully isolated.
 - **timeout** (integer) _(optional)_: Maximum wait time in milliseconds. If set to 0, the default timeout will be used.
-
----
-
-### `select_page`
-
-**Description:** Select a page as a context for future tool calls.
-
-**Parameters:**
-
-- **pageId** (number) **(required)**: The ID of the page to select. Call [`list_pages`](#list_pages) to get available pages.
-- **bringToFront** (boolean) _(optional)_: Whether to focus the page and bring it to the top.
 
 ---
 
@@ -299,12 +323,12 @@ so returned values have to be JSON-serializable.
 **Parameters:**
 
 - **function** (string) **(required)**: A JavaScript function declaration to be executed by the tool in the currently selected page.
-  Example without arguments: `() => {
+Example without arguments: `() => {
   return document.title
 }` or `async () => {
   return await fetch("example.com")
 }`.
-  Example with arguments: `(el) => {
+Example with arguments: `(el) => {
   return el.innerText;
 }`
 

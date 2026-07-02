@@ -6,6 +6,7 @@
 
 import type {YargsOptions} from './third_party/index.js';
 import {yargs, hideBin} from './third_party/index.js';
+import {parseViewport} from './utils/viewport.js';
 
 export const cliOptions = {
   autoConnect: {
@@ -125,19 +126,7 @@ export const cliOptions = {
     type: 'string',
     describe:
       'Initial viewport size for the Chrome instances started by the server. For example, `1280x720`. In headless mode, max size is 3840x2160px.',
-    coerce: (arg: string | undefined) => {
-      if (arg === undefined) {
-        return;
-      }
-      const [width, height] = arg.split('x').map(Number);
-      if (!width || !height || Number.isNaN(width) || Number.isNaN(height)) {
-        throw new Error('Invalid viewport. Expected format is `1280x720`.');
-      }
-      return {
-        width,
-        height,
-      };
-    },
+    coerce: (arg: string | undefined) => parseViewport(arg),
   },
   proxyServer: {
     type: 'string',
@@ -173,10 +162,11 @@ export const cliOptions = {
     describe: 'Whether to enable interoperability tools',
     hidden: true,
   },
-  experimentalScreencast: {
+  persistSessions: {
     type: 'boolean',
+    default: false,
     describe:
-      'Exposes experimental screencast tools (requires ffmpeg). Install ffmpeg https://www.ffmpeg.org/download.html and ensure it is available in the MCP server PATH.',
+      'Keep browser sessions alive across server restarts. Sessions are launched detached with a per-session profile and reconnected on the next start.',
   },
   chromeArg: {
     type: 'array',

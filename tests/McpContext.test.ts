@@ -5,21 +5,18 @@
  */
 
 import assert from 'node:assert';
-import {afterEach, describe, it} from 'node:test';
+import {describe, it} from 'node:test';
 
 import sinon from 'sinon';
 
 import {NetworkFormatter} from '../src/formatters/NetworkFormatter.js';
+import {IDLE_TAB_TIMEOUT_MS} from '../src/McpContext.js';
 import type {HTTPResponse} from '../src/third_party/index.js';
 import type {TraceResult} from '../src/trace-processing/parse.js';
 
 import {getMockRequest, html, withMcpContext} from './utils.js';
 
 describe('McpContext', () => {
-  afterEach(() => {
-    sinon.restore();
-  });
-
   it('list pages', async () => {
     await withMcpContext(async (_response, context) => {
       const page = context.getSelectedPage();
@@ -51,7 +48,7 @@ describe('McpContext', () => {
     await withMcpContext(async (_response, context) => {
       const page = await context.newPage();
       const timeoutBefore = page.getDefaultTimeout();
-      await context.emulate({cpuThrottlingRate: 2});
+      context.setCpuThrottlingRate(2);
       const timeoutAfter = page.getDefaultTimeout();
       assert(timeoutBefore < timeoutAfter, 'Timeout was less then expected');
     });
@@ -61,7 +58,7 @@ describe('McpContext', () => {
     await withMcpContext(async (_response, context) => {
       const page = await context.newPage();
       const timeoutBefore = page.getDefaultNavigationTimeout();
-      await context.emulate({networkConditions: 'Slow 3G'});
+      context.setNetworkConditions('Slow 3G');
       const timeoutAfter = page.getDefaultNavigationTimeout();
       assert(timeoutBefore < timeoutAfter, 'Timeout was less then expected');
     });
@@ -71,10 +68,8 @@ describe('McpContext', () => {
     await withMcpContext(async (_response, context) => {
       const page = await context.newPage();
 
-      await context.emulate({
-        cpuThrottlingRate: 2,
-        networkConditions: 'Slow 3G',
-      });
+      context.setCpuThrottlingRate(2);
+      context.setNetworkConditions('Slow 3G');
       const stub = sinon.spy(context, 'getWaitForHelper');
 
       await context.waitForEventsAfterAction(async () => {
@@ -181,6 +176,88 @@ describe('McpContext', () => {
       t.assert.snapshot?.(JSON.stringify(result.structuredContent, null, 2));
 
       fromStub.restore();
+    });
+  });
+
+  describe('tab lifecycle', () => {
+    it('reports single vs multiple tabs', async () => {
+      await withMcpContext(async (_response, context) => {
+        assert.strictEqual(context.hasMultipleTabs(), false);
+        assert.strictEqual(context.getPageCount(), 1);
+        await context.newPage();
+        assert.strictEqual(context.hasMultipleTabs(), true);
+        assert.strictEqual(context.getPageCount(), 2);
+      });
+    });
+
+    it('emits the multi-tab notice once, then not again', async () => {
+      await withMcpContext(async (_response, context) => {
+        assert.strictEqual(context.consumeMultiTabNotice(), undefined);
+        await context.newPage();
+        const first = context.consumeMultiTabNotice();
+        assert.ok(first, 'first multi-tab call should return a notice');
+        assert.match(first!, /switch_tab/);
+        assert.strictEqual(
+          context.consumeMultiTabNotice(),
+          undefined,
+          'notice should not repeat',
+        );
+      });
+    });
+
+    it('re-arms the multi-tab notice after returning to single tab', async () => {
+      await withMcpContext(async (_response, context) => {
+        const page = await context.newPage();
+        assert.ok(context.consumeMultiTabNotice());
+        const pageId = context.getPageId(page)!;
+        await context.closePage(pageId);
+        // Mirror the real request flow, which refreshes the page list.
+        await context.createPagesSnapshot();
+        assert.strictEqual(context.consumeMultiTabNotice(), undefined);
+        await context.newPage();
+        assert.ok(
+          context.consumeMultiTabNotice(),
+          'notice should fire again for a new second tab',
+        );
+      });
+    });
+
+    it('does not report the selected tab as idle', async () => {
+      await withMcpContext(async (_response, context) => {
+        await context.newPage();
+        assert.deepStrictEqual(
+          context.consumeIdleTabNotices(IDLE_TAB_TIMEOUT_MS),
+          [],
+        );
+      });
+    });
+
+    it('reports a non-selected tab once it exceeds the idle threshold', async () => {
+      await withMcpContext(async (_response, context) => {
+        const first = context.getSelectedPage();
+        const firstId = context.getPageId(first)!;
+        await context.newPage();
+        const notices = context.consumeIdleTabNotices(0);
+        assert.strictEqual(notices.length, 1);
+        assert.match(notices[0], new RegExp(`Tab ${firstId}`));
+        assert.match(notices[0], /close_page/);
+        assert.deepStrictEqual(context.consumeIdleTabNotices(0), []);
+      });
+    });
+
+    it('resets the idle timer when the tab is touched', async () => {
+      await withMcpContext(async (_response, context) => {
+        const first = context.getSelectedPage();
+        await context.newPage();
+        assert.strictEqual(context.consumeIdleTabNotices(0).length, 1);
+        // Touching resets last-activity to now, so a realistic threshold no
+        // longer considers the tab idle.
+        context.touchPage(first);
+        assert.deepStrictEqual(
+          context.consumeIdleTabNotices(IDLE_TAB_TIMEOUT_MS),
+          [],
+        );
+      });
     });
   });
 });
