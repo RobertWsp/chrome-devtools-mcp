@@ -33,6 +33,18 @@ export type SessionRunner = <T>(
 ) => Promise<T>;
 
 /**
+ * Verifies the caller owns `sessionId`, throwing the same generic "not found"
+ * as an unknown session otherwise. Injected so ownership stays a single source
+ * of truth in the transport (SessionManager) while the controller stays
+ * decoupled. Used by recorder-touching ops (draft/save) that don't need a
+ * browser context but must still be owner-scoped.
+ */
+export type OwnershipGuard = (
+  sessionId: string,
+  owner: string | undefined,
+) => void;
+
+/**
  * Renders the op-based `flow` tool. It returns the response body (without the
  * `# flow response` header, which the transport adds) or throws a readable
  * Error. Keeping all op logic here mirrors the SessionService facade and keeps
@@ -42,13 +54,25 @@ export type SessionRunner = <T>(
 export class FlowController {
   readonly #service: FlowService;
   readonly #runInSession: SessionRunner;
+  readonly #assertOwns: OwnershipGuard;
 
-  constructor(service: FlowService, runInSession: SessionRunner) {
+  constructor(
+    service: FlowService,
+    runInSession: SessionRunner,
+    assertOwns: OwnershipGuard,
+  ) {
     this.#service = service;
     this.#runInSession = runInSession;
+    this.#assertOwns = assertOwns;
   }
 
   async handle(params: FlowOpParams): Promise<string> {
+    // Any op that resolves a session (its project root / recording buffer /
+    // browser) is owner-scoped through a single guard, so a caller can never
+    // reach another owner's flows, recordings, or session via the flow tool.
+    if (params.sessionId) {
+      this.#assertOwns(params.sessionId, params.owner);
+    }
     switch (params.op) {
       case 'list':
         return this.#list(params.sessionId);

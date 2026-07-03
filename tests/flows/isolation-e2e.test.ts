@@ -23,6 +23,7 @@ describe('owner isolation e2e', () => {
 
   async function withClient(
     cb: (client: Client) => Promise<void>,
+    extraArgs: string[] = [],
   ): Promise<void> {
     const transport = new StdioClientTransport({
       command: 'node',
@@ -32,6 +33,7 @@ describe('owner isolation e2e', () => {
         '--isolated',
         '--executable-path',
         process.env.PUPPETEER_EXECUTABLE_PATH || executablePath(),
+        ...extraArgs,
       ],
     });
     const client = new Client(
@@ -138,5 +140,53 @@ describe('owner isolation e2e', () => {
         s.replace(sessionB, 'X').replace('deadbeef', 'X');
       assert.strictEqual(norm(textOf(foreign)), norm(textOf(unknown)));
     });
+  });
+
+  it('the flow tool is owner-scoped (no draft/save/list across owners)', async () => {
+    await withClient(
+      async client => {
+        const sessionB = await createSession(client, 'owner-B');
+        // B records an action.
+        await client.callTool({
+          name: 'navigate_page',
+          arguments: {
+            sessionId: sessionB,
+            url: 'data:text/html,<h1>secret</h1>',
+            [OWNER]: 'owner-B',
+          },
+        });
+
+        // A must not read B's recording buffer via op=draft.
+        const draft = await client.callTool({
+          name: 'flow',
+          arguments: {op: 'draft', sessionId: sessionB, [OWNER]: 'owner-A'},
+        });
+        assert.ok((draft as {isError?: boolean}).isError);
+        assert.match(textOf(draft), /not found/i);
+        assert.doesNotMatch(textOf(draft), /secret/);
+
+        // A must not save B's recording.
+        const save = await client.callTool({
+          name: 'flow',
+          arguments: {
+            op: 'save',
+            name: 'stolen',
+            sessionId: sessionB,
+            [OWNER]: 'owner-A',
+          },
+        });
+        assert.ok((save as {isError?: boolean}).isError);
+        assert.match(textOf(save), /not found/i);
+
+        // B can read its own draft.
+        const ownDraft = await client.callTool({
+          name: 'flow',
+          arguments: {op: 'draft', sessionId: sessionB, [OWNER]: 'owner-B'},
+        });
+        assert.ok(!(ownDraft as {isError?: boolean}).isError);
+        assert.match(textOf(ownDraft), /1 action/);
+      },
+      ['--experimental-flows'],
+    );
   });
 });

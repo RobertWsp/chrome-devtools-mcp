@@ -148,15 +148,24 @@ const flowService = flowsEnabled
 // mutex; resolution + locking stay in the transport (this module) so the
 // controller is decoupled from SessionManager.
 const flowController = flowService
-  ? new FlowController(flowService, async (sessionId, owner, run) => {
-      const session = sessionManager.getSession(sessionId, owner);
-      const guard = await session.mutex.acquire();
-      try {
-        return await run(session.context);
-      } finally {
-        guard.dispose();
-      }
-    })
+  ? new FlowController(
+      flowService,
+      async (sessionId, owner, run) => {
+        const session = sessionManager.getSession(sessionId, owner);
+        const guard = await session.mutex.acquire();
+        try {
+          return await run(session.context);
+        } finally {
+          guard.dispose();
+        }
+      },
+      // Ownership guard: getSession throws the generic "not found" for a
+      // foreign/unknown session, which is exactly the isolation semantics we
+      // want for recorder-touching ops (draft/save) too.
+      (sessionId, owner) => {
+        sessionManager.getSession(sessionId, owner);
+      },
+    )
   : undefined;
 
 /**

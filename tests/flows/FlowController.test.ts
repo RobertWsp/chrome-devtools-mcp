@@ -57,9 +57,14 @@ const passthroughRunner = async <T>(
   run: (context: Context) => Promise<T>,
 ): Promise<T> => run({} as Context);
 
+/** Ownership guard that always allows (isolation is covered by e2e/manager). */
+const allowGuard = (): void => {
+  // no-op: every session is owned in these unit tests
+};
+
 describe('FlowController', () => {
   it('list: empty state', async () => {
-    const c = new FlowController(fakeService(), passthroughRunner);
+    const c = new FlowController(fakeService(), passthroughRunner, allowGuard);
     const out = await c.handle({op: 'list'});
     assert.match(out, /No saved flows yet/);
   });
@@ -70,6 +75,7 @@ describe('FlowController', () => {
         {name: 'login', description: 'demo', steps: 2, actions: 5, env: ['PW']},
       ]),
       passthroughRunner,
+      allowGuard,
     );
     const out = await c.handle({op: 'list'});
     assert.match(out, /\*\*login\*\*/);
@@ -77,19 +83,19 @@ describe('FlowController', () => {
   });
 
   it('show: requires a name', async () => {
-    const c = new FlowController(fakeService(), passthroughRunner);
+    const c = new FlowController(fakeService(), passthroughRunner, allowGuard);
     await assert.rejects(() => c.handle({op: 'show'}), /requires a flow name/);
   });
 
   it('show: returns fenced source', async () => {
-    const c = new FlowController(fakeService(), passthroughRunner);
+    const c = new FlowController(fakeService(), passthroughRunner, allowGuard);
     const out = await c.handle({op: 'show', name: 'login'});
     assert.match(out, /```ts/);
     assert.match(out, /source of login/);
   });
 
   it('draft: requires a sessionId and returns JSON actions', async () => {
-    const c = new FlowController(fakeService(), passthroughRunner);
+    const c = new FlowController(fakeService(), passthroughRunner, allowGuard);
     await assert.rejects(() => c.handle({op: 'draft'}), /requires a sessionId/);
     const out = await c.handle({op: 'draft', sessionId: 's'});
     assert.match(out, /1 action\(s\)/);
@@ -97,7 +103,7 @@ describe('FlowController', () => {
   });
 
   it('save: rejects invalid steps JSON', async () => {
-    const c = new FlowController(fakeService(), passthroughRunner);
+    const c = new FlowController(fakeService(), passthroughRunner, allowGuard);
     await assert.rejects(
       () => c.handle({op: 'save', name: 'x', sessionId: 's', steps: '{bad'}),
       /Invalid steps JSON/,
@@ -105,7 +111,7 @@ describe('FlowController', () => {
   });
 
   it('save: persists and summarizes', async () => {
-    const c = new FlowController(fakeService(), passthroughRunner);
+    const c = new FlowController(fakeService(), passthroughRunner, allowGuard);
     const out = await c.handle({op: 'save', name: 'login', sessionId: 's'});
     assert.match(out, /Saved flow "login"/);
     assert.match(out, /login: summary/);
@@ -121,7 +127,7 @@ describe('FlowController', () => {
       ran = true;
       return run({} as Context);
     };
-    const c = new FlowController(fakeService(), runner);
+    const c = new FlowController(fakeService(), runner, allowGuard);
     const out = await c.handle({op: 'exec', name: 'login', sessionId: 's'});
     assert.ok(ran, 'session runner should be invoked');
     assert.match(out, /Replay of "login": passed/);
@@ -129,7 +135,7 @@ describe('FlowController', () => {
   });
 
   it('exec: requires name and sessionId', async () => {
-    const c = new FlowController(fakeService(), passthroughRunner);
+    const c = new FlowController(fakeService(), passthroughRunner, allowGuard);
     await assert.rejects(
       () => c.handle({op: 'exec', name: 'x'}),
       /requires a sessionId/,
@@ -141,7 +147,31 @@ describe('FlowController', () => {
   });
 
   it('unknown op throws', async () => {
-    const c = new FlowController(fakeService(), passthroughRunner);
+    const c = new FlowController(fakeService(), passthroughRunner, allowGuard);
     await assert.rejects(() => c.handle({op: 'bogus'}), /Unknown flow op/);
+  });
+
+  it('enforces the ownership guard for every op carrying a sessionId', async () => {
+    const denyGuard = (): void => {
+      throw new Error('Session "s" not found. Create one with create_session.');
+    };
+    const c = new FlowController(fakeService(), passthroughRunner, denyGuard);
+    for (const op of ['list', 'show', 'validate', 'draft', 'save', 'exec']) {
+      await assert.rejects(
+        () => c.handle({op, name: 'f', sessionId: 's'}),
+        /not found/i,
+        `op=${op} must be owner-guarded`,
+      );
+    }
+  });
+
+  it('does not require an owner check when no sessionId is present', async () => {
+    let guardCalled = false;
+    const guard = (): void => {
+      guardCalled = true;
+    };
+    const c = new FlowController(fakeService(), passthroughRunner, guard);
+    await c.handle({op: 'list'});
+    assert.strictEqual(guardCalled, false);
   });
 });
