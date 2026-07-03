@@ -169,25 +169,35 @@ const flowController = flowService
   : undefined;
 
 /**
- * When flows are enabled, produce a short reminder listing reusable flows so
- * the model checks for an existing one before re-deriving a journey.
+ * Appends a titled notice block to a tool response's text content (single
+ * helper for every flow notice, so the append behavior lives in one place).
  */
-async function flowNoticeForNewSession(
+function appendNoticeBlock(
+  content: CallToolResult['content'],
+  title: string,
+  body: string,
+): void {
+  const block = `## ${title}\n${body}`;
+  const text = content.find(part => part.type === 'text');
+  if (text && text.type === 'text') {
+    text.text += `\n\n${block}`;
+  } else {
+    content.push({type: 'text', text: block});
+  }
+}
+
+/**
+ * On a session's first browser interaction, teaches the model how flows work
+ * and to check/reuse an existing one before deriving a new journey. One-shot.
+ */
+async function appendFirstInteractionNotice(
   sessionId: string,
-): Promise<string | undefined> {
-  if (!flowService) {
-    return undefined;
+  content: CallToolResult['content'],
+): Promise<void> {
+  const notice = await flowService?.consumeFirstInteractionNotice(sessionId);
+  if (notice) {
+    appendNoticeBlock(content, 'Flows: how to reuse and save journeys', notice);
   }
-  const flows = await flowService.list(sessionId);
-  const header =
-    'Flow recording is active. Before building a multi-step journey, reuse an existing flow with the `flow` tool (op=list, op=exec) when possible; save new journeys with op=save.';
-  if (flows.length === 0) {
-    return header;
-  }
-  const names = flows.map(
-    f => `${f.name} (${f.description || 'no description'})`,
-  );
-  return `${header}\nExisting flows: ${names.join('; ')}.`;
 }
 
 /**
@@ -203,13 +213,7 @@ function appendAutoSaveNotices(
   if (notices.length === 0) {
     return;
   }
-  const block = `## Flow auto-save\n${notices.join('\n')}`;
-  const text = content.find(part => part.type === 'text');
-  if (text && text.type === 'text') {
-    text.text += `\n\n${block}`;
-  } else {
-    content.push({type: 'text', text: block});
-  }
+  appendNoticeBlock(content, 'Flow auto-save', notices.join('\n'));
 }
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -281,9 +285,10 @@ const sessionToolHandlers: Record<
     if (projectRoot && flowService) {
       flowService.setSessionProjectRoot(sessionId, projectRoot);
     }
-    // Nudge the model to reuse existing flows before deriving a new journey.
-    const flowNotice = await flowNoticeForNewSession(sessionId);
-    return flowNotice ? `${body}\n\n${flowNotice}` : body;
+    // The full "how to use flows / reuse an existing one" teaching is surfaced
+    // on the session's FIRST browser interaction (the actionable moment),
+    // where the correct per-session projectRoot is already set.
+    return body;
   },
   list_sessions: async (_params, owner) => sessionService.listSessions(owner),
   close_session: async (params, owner) => {
@@ -422,6 +427,9 @@ function registerBrowserTool(tool: ToolDefinition): void {
         // Record the successful action for the flow recorder (filtered to
         // mutating browser actions inside observe()).
         flowService?.observe(sessionId, tool, params);
+        // On the session's first interaction, teach the model how to use flows
+        // and to check/reuse an existing one before deriving a new journey.
+        await appendFirstInteractionNotice(sessionId, content);
         // Surface any auto-save notices (from a prior turn's async save) so the
         // model learns a draft flow exists, why, and how to use/commit it.
         appendAutoSaveNotices(sessionId, content);

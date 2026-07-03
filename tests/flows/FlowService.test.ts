@@ -83,6 +83,29 @@ describe('FlowService (integration)', () => {
     assert.strictEqual(list[0].actions, 2);
   });
 
+  it('teaches flow usage once on first interaction, then not again', async () => {
+    const svc = service([tool('navigate_page', false)]);
+    const first = await svc.consumeFirstInteractionNotice('s');
+    assert.ok(first, 'first interaction should teach');
+    assert.match(first!, /flow` op=list/);
+    assert.match(first!, /flow` op=exec/);
+    assert.match(first!, /No saved flows yet/);
+    // Not repeated for the same session.
+    assert.strictEqual(await svc.consumeFirstInteractionNotice('s'), undefined);
+    // A different session is taught independently.
+    assert.ok(await svc.consumeFirstInteractionNotice('other'));
+  });
+
+  it('the first-interaction teaching lists existing flows to reuse', async () => {
+    const svc = service([tool('navigate_page', false)]);
+    svc.observe('s', tool('navigate_page', false), {sessionId: 's', url: 'x'});
+    await svc.saveRecording('s', 'login', 'logs in');
+    const notice = await svc.consumeFirstInteractionNotice('s');
+    assert.ok(notice);
+    assert.match(notice!, /Existing flows in this project/);
+    assert.match(notice!, /login \(logs in\)/);
+  });
+
   it('validates a stored flow', async () => {
     const svc = service([tool('navigate_page', false)]);
     svc.observe('s', tool('navigate_page', false), {

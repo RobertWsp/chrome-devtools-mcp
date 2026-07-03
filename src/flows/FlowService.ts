@@ -67,6 +67,8 @@ export class FlowService {
   // One-shot notices describing auto-saved drafts, surfaced to the model on the
   // next tool response so it knows the file exists, why, and how to use it.
   readonly #autoSaveNotices = new Map<string, string[]>();
+  // Sessions already taught how to use flows (one-shot on first interaction).
+  readonly #taughtSessions = new Set<string>();
 
   constructor(options: FlowServiceOptions) {
     this.#defaultRoot = options.projectRoot;
@@ -144,6 +146,7 @@ export class FlowService {
     this.#sessionRoot.delete(sessionId);
     this.#autoSaveMutex.delete(sessionId);
     this.#autoSaveNotices.delete(sessionId);
+    this.#taughtSessions.delete(sessionId);
   }
 
   /**
@@ -248,6 +251,53 @@ export class FlowService {
     }
     this.#autoSaveNotices.delete(sessionId);
     return list;
+  }
+
+  /**
+   * One-shot teaching surfaced on a session's FIRST browser interaction: how
+   * flows work, that the model should FIRST check for a reusable one (op=list)
+   * and replay it (op=exec) instead of re-deriving the journey, and how to save
+   * a new one. Includes the session's existing flows so the model can act on
+   * them immediately. Returns undefined after the first call (per session) or
+   * when flows are disabled. This is the single source of truth for onboarding
+   * the model to the flow tool.
+   */
+  async consumeFirstInteractionNotice(
+    sessionId: string,
+  ): Promise<string | undefined> {
+    if (this.#taughtSessions.has(sessionId)) {
+      return undefined;
+    }
+    this.#taughtSessions.add(sessionId);
+
+    const flows = await this.list(sessionId);
+    const lines = [
+      'Flow recording is active for this session. Reusable browser journeys ' +
+        '(e.g. login, setup) are stored as `.cdp.ts` files under .cdpflows/ and ' +
+        'can be replayed instead of re-deriving every step (saving tokens).',
+      '',
+      'How to work with flows:',
+      '1. BEFORE building a multi-step journey, check for an existing one: ' +
+        'call `flow` op=list.',
+      '2. If a matching flow exists, replay it with `flow` op=exec name=<name> ' +
+        '(it stops at the first failing step and tells you how to repair it).',
+      '3. Only if none fits, perform the journey with the browser tools, then ' +
+        'save it: `flow` op=draft to read the recorded actions, regroup them ' +
+        'into named steps, and `flow` op=save name=<name> with the steps JSON. ' +
+        'Completed journeys are also auto-saved as `auto-*` drafts you can ' +
+        'rename/refine.',
+    ];
+    if (flows.length > 0) {
+      lines.push(
+        '',
+        `Existing flows in this project (prefer reusing one): ${flows
+          .map(f => `${f.name} (${f.description || 'no description'})`)
+          .join('; ')}.`,
+      );
+    } else {
+      lines.push('', 'No saved flows yet in this project.');
+    }
+    return lines.join('\n');
   }
 
   /**

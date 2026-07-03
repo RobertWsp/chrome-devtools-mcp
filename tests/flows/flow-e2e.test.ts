@@ -92,14 +92,21 @@ describe('flow e2e', () => {
 
         const sessionId = await createSession(client);
 
-        // Record a couple of mutating actions.
-        await client.callTool({
+        // Record a couple of mutating actions. The FIRST browser interaction
+        // teaches the model how to use flows / reuse an existing one.
+        const firstTurn = await client.callTool({
           name: 'navigate_page',
           arguments: {
             sessionId,
             url: 'data:text/html,<h1>hi</h1>',
           },
         });
+        const firstText = (
+          firstTurn.content as Array<{type: string; text: string}>
+        )[0].text;
+        assert.match(firstText, /Flows: how to reuse and save journeys/);
+        assert.match(firstText, /flow` op=list/);
+        assert.match(firstText, /flow` op=exec/);
 
         // Save the recording.
         const saved = await client.callTool({
