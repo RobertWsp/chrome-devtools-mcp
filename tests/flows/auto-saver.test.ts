@@ -38,6 +38,8 @@ describe('AutoSaver', () => {
       click('3'),
     ]);
     assert.strictEqual(d.save, true);
+    assert.strictEqual(d.boundary, 'size');
+    assert.strictEqual(d.retainAfterSave, 0);
     assert.match(d.reason ?? '', /reached 4 actions/);
     assert.match(d.suggestedName ?? '', /^auto-.*-111$/);
   });
@@ -52,6 +54,8 @@ describe('AutoSaver', () => {
     ];
     const d = s.evaluate(buffer);
     assert.strictEqual(d.save, true);
+    assert.strictEqual(d.boundary, 'origin');
+    assert.strictEqual(d.retainAfterSave, 1);
     assert.match(d.reason ?? '', /new origin \(other\.test\)/);
     assert.match(d.suggestedName ?? '', /shop-test/);
   });

@@ -21,12 +21,22 @@ import type {FlowAction} from './flow-model.js';
  * trivially testable.
  */
 
+/** Which boundary triggered the save. Drives how much of the buffer to keep. */
+export type AutoSaveBoundary = 'origin' | 'size';
+
 export interface AutoSaveDecision {
   /** Whether a draft should be persisted now. */
   save: boolean;
   /** Suggested flow name (kebab, unique-ish) when save is true. */
   suggestedName?: string;
-  /** Human hint describing why the boundary fired. */
+  /** Structured boundary kind (SSoT for the caller's trim behavior). */
+  boundary?: AutoSaveBoundary;
+  /**
+   * How many trailing actions to KEEP after saving. An origin boundary keeps
+   * the navigation that starts the next journey (1); a size cap keeps none.
+   */
+  retainAfterSave?: number;
+  /** Human hint describing why the boundary fired (for logs/UX only). */
   reason?: string;
 }
 
@@ -93,10 +103,12 @@ export class AutoSaver {
       return {save: false};
     }
 
-    // Size cap: the whole buffer is a journey.
+    // Size cap: the whole buffer is a journey. Keep nothing afterwards.
     if (buffer.length >= this.#maxActions) {
       return {
         save: true,
+        boundary: 'size',
+        retainAfterSave: 0,
         suggestedName: this.#name(originOf(buffer[0])),
         reason: `reached ${this.#maxActions} actions`,
       };
@@ -117,6 +129,9 @@ export class AutoSaver {
       if (priorOrigins.size > 0 && !priorOrigins.has(lastOrigin)) {
         return {
           save: true,
+          boundary: 'origin',
+          // Keep the navigation that starts the next journey.
+          retainAfterSave: 1,
           suggestedName: this.#name([...priorOrigins][0]),
           reason: `navigated to a new origin (${lastOrigin})`,
         };

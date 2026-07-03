@@ -9,6 +9,7 @@ import process from 'node:process';
 import {logger} from '../logger.js';
 import type {McpContext} from '../McpContext.js';
 import type {McpResponse} from '../McpResponse.js';
+import {Mutex} from '../Mutex.js';
 import type {Context, ToolDefinition} from '../tools/ToolDefinition.js';
 
 import {ActionRecorder} from './action-recorder.js';
@@ -60,6 +61,9 @@ export class FlowService {
   readonly #customGetEnv?: (name: string) => string | undefined;
   readonly #autoSaver: AutoSaver;
   readonly #autoSaveEnabled: boolean;
+  // Serializes auto-save per session so two fast actions can't race into a
+  // double save + corrupt buffer trim.
+  readonly #autoSaveMutex = new Map<string, Mutex>();
 
   constructor(options: FlowServiceOptions) {
     this.#defaultRoot = options.projectRoot;
@@ -135,6 +139,7 @@ export class FlowService {
   disposeRecorder(sessionId: string): void {
     this.#recorders.delete(sessionId);
     this.#sessionRoot.delete(sessionId);
+    this.#autoSaveMutex.delete(sessionId);
   }
 
   /**
@@ -158,39 +163,54 @@ export class FlowService {
     }
   }
 
+  #autoSaveMutexFor(sessionId: string): Mutex {
+    let mutex = this.#autoSaveMutex.get(sessionId);
+    if (!mutex) {
+      mutex = new Mutex();
+      this.#autoSaveMutex.set(sessionId, mutex);
+    }
+    return mutex;
+  }
+
   /**
    * Persists the current journey as a draft flow when the auto-saver detects a
-   * boundary. On a new-origin boundary the completed journey (all but the last
-   * action, which starts the next one) is saved and trimmed; on the size cap
-   * the whole buffer is saved and cleared. Best-effort and silent.
+   * boundary. The auto-saver owns the trim semantics (retainAfterSave), so the
+   * caller never re-derives them from a message. Serialized per session so
+   * concurrent observes can't double-save or corrupt the buffer trim.
+   * Best-effort and silent.
    */
   async #maybeAutoSave(sessionId: string): Promise<void> {
-    const recorder = this.recorderFor(sessionId);
-    const buffer = recorder.snapshot();
-    const decision = this.#autoSaver.evaluate(buffer);
-    if (!decision.save || !decision.suggestedName) {
-      return;
+    const guard = await this.#autoSaveMutexFor(sessionId).acquire();
+    try {
+      const recorder = this.recorderFor(sessionId);
+      const buffer = recorder.snapshot();
+      const decision = this.#autoSaver.evaluate(buffer);
+      if (!decision.save || !decision.suggestedName) {
+        return;
+      }
+      const retain = decision.retainAfterSave ?? 0;
+      const journey =
+        retain > 0 && buffer.length > retain
+          ? buffer.slice(0, buffer.length - retain)
+          : buffer;
+      if (journey.length === 0) {
+        return;
+      }
+      const draft: Flow = {
+        name: decision.suggestedName,
+        description: `Auto-saved journey (${decision.reason ?? 'boundary'}). Rename/refine with flow op=save.`,
+        env: [],
+        steps: [{name: 'journey', actions: journey}],
+      };
+      await this.saveFlow(draft, sessionId);
+      logger(
+        `flow auto-saved "${draft.name}" (${journey.length} action(s)) for session ${sessionId}`,
+      );
+      // Trim what we saved so the next journey records cleanly.
+      recorder.retainTail(retain);
+    } finally {
+      guard.dispose();
     }
-    // New-origin boundary keeps the last action (start of the next journey);
-    // size-cap saves everything.
-    const isOriginBoundary = /new origin/.test(decision.reason ?? '');
-    const journey =
-      isOriginBoundary && buffer.length > 1 ? buffer.slice(0, -1) : buffer;
-    if (journey.length === 0) {
-      return;
-    }
-    const draft: Flow = {
-      name: decision.suggestedName,
-      description: `Auto-saved journey (${decision.reason ?? 'boundary'}). Rename/refine with flow op=save.`,
-      env: [],
-      steps: [{name: 'journey', actions: journey}],
-    };
-    await this.saveFlow(draft, sessionId);
-    logger(
-      `flow auto-saved "${draft.name}" (${journey.length} action(s)) for session ${sessionId}`,
-    );
-    // Trim what we saved so the next journey records cleanly.
-    recorder.retainTail(isOriginBoundary && buffer.length > 1 ? 1 : 0);
   }
 
   /**
@@ -295,18 +315,25 @@ export class FlowService {
     options: {stopAtStep?: string; sessionId?: string} = {},
   ): Promise<ExecutionResult> {
     const flow = await this.#storeFor(options.sessionId).load(name);
+    // Read the project's .env once per run (not per env-ref) so a flow with
+    // many secrets does not re-read the file repeatedly. Real env vars still
+    // win over the file, matching #getEnv semantics.
+    const fileEnv = this.#customGetEnv
+      ? undefined
+      : readEnvFile(this.#rootFor(options.sessionId));
+    const getEnv = (envName: string): string | undefined => {
+      if (this.#customGetEnv) {
+        return this.#customGetEnv(envName);
+      }
+      return fileEnv?.get(envName) ?? process.env[envName];
+    };
     return this.#executor.run(flow, context, {
       stopAtStep: options.stopAtStep,
-      getEnv: name => this.#getEnv(name, options.sessionId),
+      getEnv,
     });
   }
 
   summarize(flow: Flow): string {
     return `${flow.name}: ${flow.steps.length} step(s), ${countActions(flow)} action(s)`;
-  }
-
-  /** Logs at debug level; used by auto-save. */
-  logDebug(message: string): void {
-    logger(message);
   }
 }

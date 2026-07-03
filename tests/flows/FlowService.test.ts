@@ -200,6 +200,36 @@ describe('FlowService (integration)', () => {
     assert.ok(list.length >= 1, 'a draft journey should be auto-saved');
     assert.match(list[0].name, /^auto-/);
   });
+
+  it('serializes concurrent auto-saves without double-saving', async () => {
+    const svc = new FlowService({
+      projectRoot: root,
+      tools: [tool('navigate_page', false), tool('click', false)],
+      getEnv: () => undefined,
+      autoSave: true,
+      // Small cap so a single burst triggers exactly one boundary.
+      // (constructor uses defaults; drive exactly to the default cap of 12).
+    });
+    svc.setSessionProjectRoot('s', root);
+    // Fire the whole burst synchronously so multiple auto-save evaluations
+    // race on the same buffer. The per-session mutex must collapse them into
+    // a single saved draft.
+    svc.observe('s', tool('navigate_page', false), {
+      sessionId: 's',
+      url: 'https://a.test',
+    });
+    for (let i = 0; i < 11; i++) {
+      svc.observe('s', tool('click', false), {sessionId: 's', uid: `${i}`});
+    }
+    await new Promise(r => setTimeout(r, 100));
+    const list = await svc.list('s');
+    const autos = list.filter(f => f.name.startsWith('auto-'));
+    assert.strictEqual(
+      autos.length,
+      1,
+      `expected exactly one auto-saved draft, got ${autos.length}`,
+    );
+  });
 });
 
 async function fileExists(p: string): Promise<boolean> {
