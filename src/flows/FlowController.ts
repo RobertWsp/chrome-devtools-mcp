@@ -47,11 +47,11 @@ export class FlowController {
   async handle(params: FlowOpParams): Promise<string> {
     switch (params.op) {
       case 'list':
-        return this.#list();
+        return this.#list(params.sessionId);
       case 'show':
-        return this.#show(this.#requireName(params));
+        return this.#show(this.#requireName(params), params.sessionId);
       case 'validate':
-        return this.#validate(this.#requireName(params));
+        return this.#validate(this.#requireName(params), params.sessionId);
       case 'draft':
         return this.#draft(this.#requireSession(params));
       case 'save':
@@ -77,8 +77,8 @@ export class FlowController {
     return params.sessionId;
   }
 
-  async #list(): Promise<string> {
-    const flows = await this.#service.list();
+  async #list(sessionId?: string): Promise<string> {
+    const flows = await this.#service.list(sessionId);
     if (flows.length === 0) {
       return 'No saved flows yet. Actions are being recorded; use op=save to persist one.';
     }
@@ -89,13 +89,13 @@ export class FlowController {
     return `Saved flows:\n${lines.join('\n')}`;
   }
 
-  async #show(name: string): Promise<string> {
-    const source = await this.#service.readSource(name);
+  async #show(name: string, sessionId?: string): Promise<string> {
+    const source = await this.#service.readSource(name, sessionId);
     return `Source of "${name}":\n\n\`\`\`ts\n${source}\n\`\`\``;
   }
 
-  async #validate(name: string): Promise<string> {
-    const result = await this.#service.validateStored(name);
+  async #validate(name: string, sessionId?: string): Promise<string> {
+    const result = await this.#service.validateStored(name, sessionId);
     const lines = result.issues.map(i => `- [${i.severity}] ${i.message}`);
     return `Validation of "${name}": ${result.valid ? 'valid' : 'INVALID'}\n${
       lines.join('\n') || 'No issues.'
@@ -151,6 +151,7 @@ export class FlowController {
     return this.#runInSession(sessionId, async context => {
       const result = await this.#service.exec(name, context, {
         stopAtStep: params.stopAtStep,
+        sessionId,
       });
       const stepLines = result.steps.map(s =>
         s.status === 'passed'

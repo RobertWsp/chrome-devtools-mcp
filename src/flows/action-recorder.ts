@@ -54,4 +54,20 @@ export class ActionRecorder {
   clear(): void {
     this.#actions.length = 0;
   }
+
+  /**
+   * Drops all but the last `count` actions. Used after an auto-save to keep
+   * the start of the next journey (e.g. the navigation that opened a new
+   * origin) while discarding what was already persisted.
+   */
+  retainTail(count: number): void {
+    if (count <= 0) {
+      this.#actions.length = 0;
+      return;
+    }
+    if (count >= this.#actions.length) {
+      return;
+    }
+    this.#actions.splice(0, this.#actions.length - count);
+  }
 }

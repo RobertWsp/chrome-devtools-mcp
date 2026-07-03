@@ -92,7 +92,7 @@ describe('SessionService', () => {
     it('forwards launch defaults and parses the viewport', async () => {
       const {manager, rec} = fakeManager();
       const service = new SessionService(manager, defaults);
-      const body = await service.createSession({
+      const {body} = await service.createSession({
         headless: true,
         viewport: '800x600',
         label: 'login',

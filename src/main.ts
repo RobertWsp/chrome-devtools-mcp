@@ -130,11 +130,13 @@ const flowController = flowService
  * When flows are enabled, produce a short reminder listing reusable flows so
  * the model checks for an existing one before re-deriving a journey.
  */
-async function flowNoticeForNewSession(): Promise<string | undefined> {
+async function flowNoticeForNewSession(
+  sessionId: string,
+): Promise<string | undefined> {
   if (!flowService) {
     return undefined;
   }
-  const flows = await flowService.list();
+  const flows = await flowService.list(sessionId);
   const header =
     'Flow recording is active. Before building a multi-step journey, reuse an existing flow with the `flow` tool (op=list, op=exec) when possible; save new journeys with op=save.';
   if (flows.length === 0) {
@@ -184,14 +186,21 @@ const sessionToolHandlers: Record<
   (params: Record<string, unknown>) => Promise<string>
 > = {
   create_session: async params => {
-    const body = await sessionService.createSession({
+    const {sessionId, body} = await sessionService.createSession({
       headless: params.headless as boolean | undefined,
       viewport: params.viewport as string | undefined,
       label: params.label as string | undefined,
       url: params.url as string | undefined,
     });
+    // Associate this session with its host project so recorded flows and
+    // their .env land in the right repo (the shared subprocess serves many
+    // projects). Falls back to the server's default root when omitted.
+    const projectRoot = params.projectRoot as string | undefined;
+    if (projectRoot && flowService) {
+      flowService.setSessionProjectRoot(sessionId, projectRoot);
+    }
     // Nudge the model to reuse existing flows before deriving a new journey.
-    const flowNotice = await flowNoticeForNewSession();
+    const flowNotice = await flowNoticeForNewSession(sessionId);
     return flowNotice ? `${body}\n\n${flowNotice}` : body;
   },
   list_sessions: async () => sessionService.listSessions(),

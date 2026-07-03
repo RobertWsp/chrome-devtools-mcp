@@ -48,6 +48,12 @@ export const createSession = defineTool({
       .describe(
         'URL to navigate to after creating the session. If omitted, opens about:blank.',
       ),
+    projectRoot: zod
+      .string()
+      .optional()
+      .describe(
+        'Absolute path of the current project. Used to store/read recorded flows and their .env under this project (.cdpflows/). Pass the working directory of the project you are automating so flows land in the right repo.',
+      ),
   },
   handler: notWired,
 });

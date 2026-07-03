@@ -69,14 +69,19 @@ export class FlowExecutor {
   async run(
     flow: Flow,
     context: Context,
-    options: {stopAtStep?: string} = {},
+    options: {
+      stopAtStep?: string;
+      /** Overrides env resolution for this run (per-project .env). */
+      getEnv?: (name: string) => string | undefined;
+    } = {},
   ): Promise<ExecutionResult> {
     const steps: StepResult[] = [];
     let failedStepIndex = -1;
+    const getEnv = options.getEnv ?? this.#deps.getEnv;
 
     for (let i = 0; i < flow.steps.length; i++) {
       const step = flow.steps[i];
-      const result = await this.#runStep(step, context);
+      const result = await this.#runStep(step, context, getEnv);
       steps.push(result);
       if (result.status === 'failed') {
         failedStepIndex = i;
@@ -95,11 +100,15 @@ export class FlowExecutor {
     };
   }
 
-  async #runStep(step: FlowStep, context: Context): Promise<StepResult> {
+  async #runStep(
+    step: FlowStep,
+    context: Context,
+    getEnv: (name: string) => string | undefined,
+  ): Promise<StepResult> {
     let actionsRun = 0;
     for (const action of step.actions) {
       try {
-        await this.#runAction(action, context);
+        await this.#runAction(action, context, getEnv);
         actionsRun++;
       } catch (err) {
         return {
@@ -114,12 +123,16 @@ export class FlowExecutor {
     return {name: step.name, status: 'passed', actionsRun};
   }
 
-  async #runAction(action: FlowAction, context: Context): Promise<void> {
+  async #runAction(
+    action: FlowAction,
+    context: Context,
+    getEnv: (name: string) => string | undefined,
+  ): Promise<void> {
     const tool = this.#deps.getTool(action.tool);
     if (!tool) {
       throw new Error(`Unknown tool "${action.tool}".`);
     }
-    const params = this.#resolveParams(action.params);
+    const params = this.#resolveParams(action.params, getEnv);
     const timeout =
       typeof params.timeout === 'number'
         ? params.timeout
@@ -141,11 +154,14 @@ export class FlowExecutor {
   }
 
   /** Replaces env references with their resolved values. */
-  #resolveParams(params: FlowAction['params']): Record<string, unknown> {
+  #resolveParams(
+    params: FlowAction['params'],
+    getEnv: (name: string) => string | undefined,
+  ): Record<string, unknown> {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(params)) {
       if (isEnvRef(value)) {
-        const resolved = this.#deps.getEnv(value.__env);
+        const resolved = getEnv(value.__env);
         if (resolved === undefined) {
           throw new Error(
             `Missing environment variable "${value.__env}". Set it in .env.`,

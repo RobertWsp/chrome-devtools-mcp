@@ -81,6 +81,19 @@ describe('flow scenarios e2e', () => {
     return match[1];
   }
 
+  async function createSessionAt(
+    client: Client,
+    root: string,
+  ): Promise<string> {
+    const result = await client.callTool({
+      name: 'create_session',
+      arguments: {headless: true, projectRoot: root},
+    });
+    const match = textOf(result).match(/\*\*sessionId\*\*: `([^`]+)`/);
+    assert.ok(match, `no sessionId in: ${textOf(result)}`);
+    return match[1];
+  }
+
   async function call(
     client: Client,
     name: string,
@@ -510,4 +523,96 @@ describe('flow scenarios e2e', () => {
       assert.match(draftB, /0 action\(s\)/);
     });
   });
+
+  // --- Scenario 9: per-session projectRoot routes flows to the right repo -
+  it('stores flows under the session declared projectRoot', async () => {
+    const otherRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'flow-scn-other-'),
+    );
+    try {
+      await withClient(async client => {
+        // Session A uses the default root; session B declares otherRoot.
+        const sessionB = await createSessionAt(client, otherRoot);
+        await call(client, 'navigate_page', {
+          sessionId: sessionB,
+          url: 'data:text/html,<h1>B</h1>',
+        });
+        const saved = await call(client, 'flow', {
+          op: 'save',
+          name: 'routed',
+          sessionId: sessionB,
+          steps: JSON.stringify([
+            {
+              name: 'open',
+              actions: [
+                {
+                  tool: 'navigate_page',
+                  params: {url: 'data:text/html,<h1>B</h1>'},
+                },
+              ],
+            },
+          ]),
+        });
+        assert.match(saved, /Saved flow "routed"/);
+        assert.match(
+          saved,
+          new RegExp(otherRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+        );
+
+        // The flow lives in otherRoot, NOT the default projectRoot.
+        assert.ok(
+          await fileExists(path.join(otherRoot, '.cdpflows', 'routed.cdp.ts')),
+        );
+        assert.ok(
+          !(await fileExists(
+            path.join(projectRoot, '.cdpflows', 'routed.cdp.ts'),
+          )),
+        );
+
+        // op=list for that session only sees its project's flows.
+        const listed = await call(client, 'flow', {
+          op: 'list',
+          sessionId: sessionB,
+        });
+        assert.match(listed, /\*\*routed\*\*/);
+      });
+    } finally {
+      await fs.rm(otherRoot, {recursive: true, force: true});
+    }
+  });
+
+  // --- Scenario 10: auto-save persists a journey without op=save ---------
+  it('auto-saves a journey when navigating to a new origin', async () => {
+    await withClient(async client => {
+      const sessionId = await createSessionAt(client, projectRoot);
+      // Interact on origin A (data URLs whose 24-char prefix differs), then
+      // navigate to origin B -> journey boundary. Offline + deterministic.
+      await call(client, 'navigate_page', {
+        sessionId,
+        url: 'data:text/html,<h1>commonprefix-one</h1>',
+      });
+      await call(client, 'navigate_page', {
+        sessionId,
+        url: 'data:text/html,<h1>commonprefix-two</h1>',
+      });
+      await call(client, 'navigate_page', {
+        sessionId,
+        url: 'data:text/html,<h1>DIFFERENTsite</h1>',
+      });
+      // Give the async auto-save a moment.
+      await new Promise(r => setTimeout(r, 400));
+
+      const listed = await call(client, 'flow', {op: 'list', sessionId});
+      assert.match(listed, /\*\*auto-/);
+    });
+  });
 });
+
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}

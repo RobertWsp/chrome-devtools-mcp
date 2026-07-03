@@ -4,10 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {existsSync} from 'node:fs';
+import {existsSync, readFileSync} from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import process from 'node:process';
 
 import type {ExtractedSecret} from './secret-scanner.js';
 
@@ -16,28 +15,22 @@ const ENV_EXAMPLE_FILE = '.env.example';
 const GITIGNORE_FILE = '.gitignore';
 
 /**
- * Loads `<projectRoot>/.env` into `process.env` if present, WITHOUT overriding
- * variables already set in the real environment (an explicit env var always
- * wins over the persisted file). This is what makes secret placeholders in a
- * flow resolvable at replay time -- the same file `persistSecrets` writes is
- * the single source of truth for values, and this is the only place it is
- * read back into the process. Missing file is a no-op.
+ * Reads `<projectRoot>/.env` into a Map without touching `process.env`. This
+ * is how flow env references resolve per-project at replay time: each project
+ * root has its own `.env` (the same file `persistSecrets` writes), and callers
+ * layer a real-env fallback on top so an explicit env var still wins. Returns
+ * an empty map when the file is absent. No global mutation keeps concurrent
+ * sessions in different projects isolated.
  */
-export function loadEnvFile(projectRoot: string): void {
+export function readEnvFile(projectRoot: string): Map<string, string> {
   const envPath = path.join(projectRoot, ENV_FILE);
   if (!existsSync(envPath)) {
-    return;
+    return new Map();
   }
-  // Snapshot keys that are already set so a real env var wins over the file.
-  const preset = new Set(Object.keys(process.env));
-  const before: Record<string, string | undefined> = {};
-  for (const key of preset) {
-    before[key] = process.env[key];
-  }
-  process.loadEnvFile(envPath);
-  // Restore any preset key the file may have overwritten.
-  for (const key of preset) {
-    process.env[key] = before[key];
+  try {
+    return parseEnv(readFileSync(envPath, 'utf8'));
+  } catch {
+    return new Map();
   }
 }
 

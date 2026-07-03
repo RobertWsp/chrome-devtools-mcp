@@ -51,7 +51,9 @@ export class SessionService {
     this.#persist = options.persist ?? false;
   }
 
-  async createSession(params: CreateSessionParams): Promise<string> {
+  async createSession(
+    params: CreateSessionParams,
+  ): Promise<{sessionId: string; body: string}> {
     const session = await this.#manager.createSession({
       headless: params.headless,
       viewport: parseViewport(params.viewport),
@@ -70,7 +72,7 @@ export class SessionService {
       await page.goto(params.url);
     }
 
-    return [
+    const body = [
       `Session created successfully.`,
       ``,
       `**sessionId**: \`${session.sessionId}\``,
@@ -80,6 +82,7 @@ export class SessionService {
     ]
       .filter(Boolean)
       .join('\n');
+    return {sessionId: session.sessionId, body};
   }
 
   listSessions(): string {

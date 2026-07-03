@@ -139,4 +139,74 @@ describe('FlowService (integration)', () => {
     assert.strictEqual(svc.recorderFor('a').size, 0);
     assert.strictEqual(svc.recorderFor('b').size, 1);
   });
+
+  it('stores flows under each session declared project root', async () => {
+    const rootB = await fs.mkdtemp(path.join(os.tmpdir(), 'flow-svc-b-'));
+    try {
+      const svc = service([tool('navigate_page', false)]);
+      svc.setSessionProjectRoot('a', root);
+      svc.setSessionProjectRoot('b', rootB);
+      svc.observe('a', tool('navigate_page', false), {
+        sessionId: 'a',
+        url: 'https://a.test',
+      });
+      svc.observe('b', tool('navigate_page', false), {
+        sessionId: 'b',
+        url: 'https://b.test',
+      });
+      await svc.saveRecording('a', 'flow-a');
+      await svc.saveRecording('b', 'flow-b');
+
+      // Each flow lands in its own project's .cdpflows.
+      assert.ok(
+        await fileExists(path.join(root, '.cdpflows', 'flow-a.cdp.ts')),
+      );
+      assert.ok(
+        await fileExists(path.join(rootB, '.cdpflows', 'flow-b.cdp.ts')),
+      );
+      // Cross-project lists are isolated.
+      assert.deepStrictEqual(
+        (await svc.list('a')).map(f => f.name),
+        ['flow-a'],
+      );
+      assert.deepStrictEqual(
+        (await svc.list('b')).map(f => f.name),
+        ['flow-b'],
+      );
+    } finally {
+      await fs.rm(rootB, {recursive: true, force: true});
+    }
+  });
+
+  it('auto-saves a journey on the action cap', async () => {
+    const svc = new FlowService({
+      projectRoot: root,
+      tools: [tool('navigate_page', false), tool('click', false)],
+      getEnv: () => undefined,
+      autoSave: true,
+    });
+    svc.setSessionProjectRoot('s', root);
+    // Drive enough actions to hit the default cap (12).
+    svc.observe('s', tool('navigate_page', false), {
+      sessionId: 's',
+      url: 'https://a.test',
+    });
+    for (let i = 0; i < 12; i++) {
+      svc.observe('s', tool('click', false), {sessionId: 's', uid: `${i}`});
+    }
+    // Give the async auto-save a tick to flush.
+    await new Promise(r => setTimeout(r, 50));
+    const list = await svc.list('s');
+    assert.ok(list.length >= 1, 'a draft journey should be auto-saved');
+    assert.match(list[0].name, /^auto-/);
+  });
 });
+
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}

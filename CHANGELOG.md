@@ -12,6 +12,8 @@
 ### Changed
 
 * internal refactor for maintainability: session tool use cases moved into a `SessionService` facade, tab-notice rendering centralized in `McpResponse`, on-demand tool visibility extracted to `MultiTabToolGate`, and shared `McpResult`/`parseViewport` helpers remove duplicated result construction and viewport parsing. No user-facing behavior change.
+* flows are now per-project: `create_session` accepts a `projectRoot`, and flows/`.env` are stored and read under that session's root instead of a single global directory. This fixes flows landing in the wrong repo when one shared mcp-chrome subprocess serves multiple projects. `.env` is read per-project without mutating `process.env`.
+* completed browser journeys are auto-saved as `auto-*` draft flows (on a new-origin navigation or after a burst of actions) so a useful recording is never lost even if it is never explicitly saved.
 
 ## [0.16.0](https://github.com/ChromeDevTools/chrome-devtools-mcp/compare/chrome-devtools-mcp-v0.15.1...chrome-devtools-mcp-v0.16.0) (2026-02-04)
 
