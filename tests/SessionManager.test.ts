@@ -438,6 +438,97 @@ describe('SessionManager', () => {
     });
   });
 
+  describe('owner-based isolation', () => {
+    it('an owner cannot resolve another owner session (same generic error)', async () => {
+      const manager = createManager();
+      const mine = await manager.createSession({headless: true, ownerId: 'me'});
+      const theirs = await manager.createSession({
+        headless: true,
+        ownerId: 'them',
+      });
+
+      // I can reach my own session.
+      assert.strictEqual(manager.getSession(mine.sessionId, 'me'), mine);
+      // I cannot reach theirs; it looks exactly like a non-existent session.
+      assert.throws(
+        () => manager.getSession(theirs.sessionId, 'me'),
+        /not found/i,
+      );
+      // The error must not reveal MY other sessions or any id I did not pass.
+      try {
+        manager.getSession(theirs.sessionId, 'me');
+      } catch (e) {
+        assert.doesNotMatch((e as Error).message, new RegExp(mine.sessionId));
+      }
+    });
+
+    it('errors for unknown and foreign ids are indistinguishable', async () => {
+      const manager = createManager();
+      const theirs = await manager.createSession({
+        headless: true,
+        ownerId: 'them',
+      });
+      let foreignErr = '';
+      let unknownErr = '';
+      try {
+        manager.getSession(theirs.sessionId, 'me');
+      } catch (e) {
+        foreignErr = (e as Error).message;
+      }
+      try {
+        manager.getSession('deadbeef', 'me');
+      } catch (e) {
+        unknownErr = (e as Error).message;
+      }
+      // Same shape (only the id differs) so ownership can't be probed.
+      assert.strictEqual(
+        foreignErr.replace(theirs.sessionId, 'X'),
+        unknownErr.replace('deadbeef', 'X'),
+      );
+    });
+
+    it('listSessions only returns the owner sessions', async () => {
+      const manager = createManager();
+      const a1 = await manager.createSession({headless: true, ownerId: 'a'});
+      await manager.createSession({headless: true, ownerId: 'a'});
+      await manager.createSession({headless: true, ownerId: 'b'});
+
+      const aList = manager.listSessions('a');
+      assert.strictEqual(aList.length, 2);
+      const bList = manager.listSessions('b');
+      assert.strictEqual(bList.length, 1);
+      // No id from 'a' leaks into 'b' list.
+      assert.ok(!bList.some(s => s.sessionId === a1.sessionId));
+    });
+
+    it('closeSession refuses to close a foreign session', async () => {
+      const manager = createManager();
+      const theirs = await manager.createSession({
+        headless: true,
+        ownerId: 'them',
+      });
+      await assert.rejects(
+        () => manager.closeSession(theirs.sessionId, 'me'),
+        /not found/i,
+      );
+      // Still alive for its real owner.
+      assert.ok(theirs.browser.connected);
+      assert.strictEqual(manager.sessionCount, 1);
+      await manager.closeSession(theirs.sessionId, 'them');
+      assert.strictEqual(manager.sessionCount, 0);
+    });
+
+    it('a caller without an owner cannot reach owned sessions', async () => {
+      const manager = createManager();
+      const owned = await manager.createSession({
+        headless: true,
+        ownerId: 'them',
+      });
+      assert.throws(() => manager.getSession(owned.sessionId));
+      assert.deepStrictEqual(manager.listSessions(), []);
+    });
+  });
+
   describe('persistence and reconnection', () => {
     const tempRoots: string[] = [];
 

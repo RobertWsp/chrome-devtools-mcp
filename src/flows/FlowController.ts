@@ -16,15 +16,19 @@ export interface FlowOpParams {
   stopAtStep?: string;
   sessionId?: string;
   steps?: string;
+  /** Transport-level owner id (isolation); not a model-facing param. */
+  owner?: string;
 }
 
 /**
  * Runs a browser tool action against a session under its mutex. Injected so
  * the controller stays decoupled from SessionManager (the transport layer
- * owns session resolution + locking).
+ * owns session resolution + locking). The `owner` scopes access so a flow can
+ * only replay against a session the caller owns.
  */
 export type SessionRunner = <T>(
   sessionId: string,
+  owner: string | undefined,
   run: (context: Context) => Promise<T>,
 ) => Promise<T>;
 
@@ -148,7 +152,7 @@ export class FlowController {
   async #exec(params: FlowOpParams): Promise<string> {
     const name = this.#requireName(params);
     const sessionId = this.#requireSession(params);
-    return this.#runInSession(sessionId, async context => {
+    return this.#runInSession(sessionId, params.owner, async context => {
       const result = await this.#service.exec(name, context, {
         stopAtStep: params.stopAtStep,
         sessionId,

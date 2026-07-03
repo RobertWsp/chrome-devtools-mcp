@@ -53,6 +53,7 @@ function fakeService(flows: unknown[] = []) {
 
 const passthroughRunner = async <T>(
   _sessionId: string,
+  _owner: string | undefined,
   run: (context: Context) => Promise<T>,
 ): Promise<T> => run({} as Context);
 
@@ -114,6 +115,7 @@ describe('FlowController', () => {
     let ran = false;
     const runner = async <T>(
       _sessionId: string,
+      _owner: string | undefined,
       run: (context: Context) => Promise<T>,
     ): Promise<T> => {
       ran = true;

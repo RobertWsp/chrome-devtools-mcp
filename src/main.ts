@@ -17,6 +17,7 @@ import {logger, saveLogsToFile} from './logger.js';
 import {McpResponse} from './McpResponse.js';
 import {textResult, errorResult} from './McpResult.js';
 import {MultiTabToolGate} from './MultiTabToolGate.js';
+import {extractOwner, OWNER_PARAM} from './owner.js';
 import {SessionManager} from './SessionManager.js';
 import {SessionRegistry} from './SessionRegistry.js';
 import {SessionService} from './SessionService.js';
@@ -147,8 +148,8 @@ const flowService = flowsEnabled
 // mutex; resolution + locking stay in the transport (this module) so the
 // controller is decoupled from SessionManager.
 const flowController = flowService
-  ? new FlowController(flowService, async (sessionId, run) => {
-      const session = sessionManager.getSession(sessionId);
+  ? new FlowController(flowService, async (sessionId, owner, run) => {
+      const session = sessionManager.getSession(sessionId, owner);
       const guard = await session.mutex.acquire();
       try {
         return await run(session.context);
@@ -208,6 +209,19 @@ const sessionIdSchema = zod
     'The session ID of the Chrome browser instance to use. Obtain one by calling create_session first.',
   );
 
+// Reserved transport-level owner id. Declared on every tool so the MCP SDK's
+// schema validation lets it PASS THROUGH (unknown keys are otherwise stripped)
+// to extractOwner. It is optional + hidden intent: the host injects it; the
+// model never sets it.
+const ownerSchema = {
+  [OWNER_PARAM]: zod
+    .string()
+    .optional()
+    .describe(
+      'Reserved: host-injected caller identity for session isolation. Do not set.',
+    ),
+};
+
 /**
  * Use-case handlers for the session tools, keyed by tool name. Each returns
  * the response body; the wrapper adds the `# {tool} response` header, logging
@@ -216,14 +230,18 @@ const sessionIdSchema = zod
  */
 const sessionToolHandlers: Record<
   string,
-  (params: Record<string, unknown>) => Promise<string>
+  (
+    params: Record<string, unknown>,
+    owner: string | undefined,
+  ) => Promise<string>
 > = {
-  create_session: async params => {
+  create_session: async (params, owner) => {
     const {sessionId, body} = await sessionService.createSession({
       headless: params.headless as boolean | undefined,
       viewport: params.viewport as string | undefined,
       label: params.label as string | undefined,
       url: params.url as string | undefined,
+      ownerId: owner,
     });
     // Associate this session with its host project so recorded flows and
     // their .env land in the right repo (the shared subprocess serves many
@@ -236,10 +254,10 @@ const sessionToolHandlers: Record<
     const flowNotice = await flowNoticeForNewSession(sessionId);
     return flowNotice ? `${body}\n\n${flowNotice}` : body;
   },
-  list_sessions: async () => sessionService.listSessions(),
-  close_session: async params => {
+  list_sessions: async (_params, owner) => sessionService.listSessions(owner),
+  close_session: async (params, owner) => {
     const sessionId = params.sessionId as string;
-    const result = await sessionService.closeSession(sessionId);
+    const result = await sessionService.closeSession(sessionId, owner);
     // Drop the session's action recording buffer to avoid leaks.
     flowService?.disposeRecorder(sessionId);
     return result;
@@ -255,13 +273,16 @@ function registerSessionTool(tool: ToolDefinition): void {
     tool.name,
     {
       description: tool.description,
-      inputSchema: tool.schema,
+      inputSchema: {...tool.schema, ...ownerSchema},
       annotations: tool.annotations,
     },
-    async (params): Promise<CallToolResult> => {
+    async (rawParams): Promise<CallToolResult> => {
+      // Strip the transport-level owner id before logging/handling so it never
+      // appears in output or reaches a handler as a business param.
+      const {owner, rest: params} = extractOwner(rawParams);
       try {
         logger(`${tool.name} request: ${JSON.stringify(params, null, '  ')}`);
-        const body = await handle(params);
+        const body = await handle(params, owner);
         return textResult(`# ${tool.name} response\n${body}`);
       } catch (err) {
         logger(`${tool.name} error:`, err);
@@ -322,6 +343,7 @@ function registerBrowserTool(tool: ToolDefinition): void {
   const schemaWithSession = {
     ...tool.schema,
     sessionId: sessionIdSchema,
+    ...ownerSchema,
   };
 
   const registered = server.registerTool(
@@ -331,7 +353,10 @@ function registerBrowserTool(tool: ToolDefinition): void {
       inputSchema: schemaWithSession,
       annotations: tool.annotations,
     },
-    async (params): Promise<CallToolResult> => {
+    async (rawParams): Promise<CallToolResult> => {
+      // Strip the transport-level owner id so it never reaches the tool
+      // handler or appears in logs/output; use it to scope session access.
+      const {owner, rest: params} = extractOwner(rawParams);
       const sessionId = params.sessionId as string;
       if (!sessionId) {
         return errorResult(
@@ -343,7 +368,7 @@ function registerBrowserTool(tool: ToolDefinition): void {
 
       let session;
       try {
-        session = sessionManager.getSession(sessionId);
+        session = sessionManager.getSession(sessionId, owner);
       } catch (err) {
         return errorResult(err);
       }
@@ -394,6 +419,7 @@ function registerFlowTool(
   const schemaWithSession = {
     ...tool.schema,
     sessionId: sessionIdSchema.optional(),
+    ...ownerSchema,
   };
   server.registerTool(
     tool.name,
@@ -403,7 +429,8 @@ function registerFlowTool(
       annotations: tool.annotations,
     },
     async (rawParams): Promise<CallToolResult> => {
-      const params = rawParams as FlowOpParams;
+      const {owner, rest} = extractOwner(rawParams);
+      const params = {...rest, owner} as FlowOpParams;
       try {
         logger(`flow op=${params.op} name=${params.name ?? ''}`);
         const body = await controller.handle(params);

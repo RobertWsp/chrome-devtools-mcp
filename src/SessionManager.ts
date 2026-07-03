@@ -26,6 +26,12 @@ export interface SessionInfo {
   userDataDir?: string;
   /** Last time a tool operated on this session (ms). Drives idle reaping. */
   lastActivityAt: number;
+  /**
+   * Stable identity of the host session (pi session) that owns this browser
+   * session. Isolation boundary: only the owner may see or operate it.
+   * `undefined` for sessions created without an owner (legacy callers).
+   */
+  ownerId?: string;
 }
 
 export interface CreateSessionOptions {
@@ -40,6 +46,8 @@ export interface CreateSessionOptions {
   devtools?: boolean;
   enableExtensions?: boolean;
   label?: string;
+  /** Identity of the owning host session (isolation boundary). */
+  ownerId?: string;
 }
 
 export interface McpContextOptions {
@@ -128,6 +136,7 @@ export class SessionManager {
         wsEndpoint,
         userDataDir,
         lastActivityAt: createdAt.getTime(),
+        ownerId: options.ownerId,
       };
 
       browser.on('disconnected', () => {
@@ -164,12 +173,26 @@ export class SessionManager {
     }
   }
 
-  getSession(sessionId: string): SessionInfo {
+  /**
+   * True when `owner` may access `session`. A session owned by someone else is
+   * treated as if it does not exist for this caller. A caller with no owner
+   * (legacy) can only reach ownerless sessions, and vice versa — so identities
+   * never cross.
+   */
+  #ownsSession(session: SessionInfo, owner: string | undefined): boolean {
+    return session.ownerId === owner;
+  }
+
+  /**
+   * Resolves a session for `owner`. Never leaks other sessions' ids: an unknown
+   * id and a foreign-owned id yield the SAME generic "not found" error, so a
+   * caller cannot probe or enumerate sessions it does not own.
+   */
+  getSession(sessionId: string, owner?: string): SessionInfo {
     const session = this.#sessions.get(sessionId);
-    if (!session) {
-      const available = [...this.#sessions.keys()].join(', ');
+    if (!session || !this.#ownsSession(session, owner)) {
       throw new Error(
-        `Session "${sessionId}" not found. Available sessions: ${available || 'none. Create one with create_session.'}`,
+        `Session "${sessionId}" not found. Create one with create_session.`,
       );
     }
     if (!session.browser.connected) {
@@ -181,7 +204,8 @@ export class SessionManager {
     return session;
   }
 
-  listSessions(): Array<{
+  /** Lists only the sessions owned by `owner` (isolation boundary). */
+  listSessions(owner?: string): Array<{
     sessionId: string;
     createdAt: string;
     label?: string;
@@ -195,6 +219,9 @@ export class SessionManager {
     }> = [];
 
     for (const [, session] of this.#sessions) {
+      if (!this.#ownsSession(session, owner)) {
+        continue;
+      }
       result.push({
         sessionId: session.sessionId,
         createdAt: session.createdAt.toISOString(),
@@ -205,12 +232,26 @@ export class SessionManager {
     return result;
   }
 
-  async closeSession(sessionId: string): Promise<void> {
+  /**
+   * Owner-checked close (the public/tool path): a caller may only close its own
+   * sessions. Foreign/unknown ids yield the same generic "not found".
+   */
+  async closeSession(sessionId: string, owner?: string): Promise<void> {
+    const session = this.#sessions.get(sessionId);
+    if (!session || !this.#ownsSession(session, owner)) {
+      throw new Error(
+        `Session "${sessionId}" not found. Create one with create_session.`,
+      );
+    }
+    await this.#closeSessionUnchecked(sessionId);
+  }
+
+  /** Internal close without an owner check (reaper / shutdown / admin). */
+  async #closeSessionUnchecked(sessionId: string): Promise<void> {
     const session = this.#sessions.get(sessionId);
     if (!session) {
-      throw new Error(`Session "${sessionId}" not found.`);
+      return;
     }
-
     logger(`Closing session ${sessionId} (acquiring mutex)`);
     const guard = await session.mutex.acquire();
     try {
@@ -236,7 +277,7 @@ export class SessionManager {
   async closeAllSessions(): Promise<void> {
     this.#shuttingDown = true;
     const ids = [...this.#sessions.keys()];
-    await Promise.allSettled(ids.map(id => this.closeSession(id)));
+    await Promise.allSettled(ids.map(id => this.#closeSessionUnchecked(id)));
   }
 
   /**
@@ -395,7 +436,7 @@ export class SessionManager {
       }
       logger(`Reaping idle session ${current.sessionId}`);
       try {
-        await this.closeSession(current.sessionId);
+        await this.#closeSessionUnchecked(current.sessionId);
         reaped++;
       } catch (err) {
         logger(`Error reaping session ${current.sessionId}:`, err);

@@ -28,6 +28,8 @@ export interface CreateSessionParams {
   viewport?: string;
   label?: string;
   url?: string;
+  /** Owner identity (isolation boundary); undefined for legacy callers. */
+  ownerId?: string;
 }
 
 /**
@@ -58,6 +60,7 @@ export class SessionService {
       headless: params.headless,
       viewport: parseViewport(params.viewport),
       label: params.label,
+      ownerId: params.ownerId,
       channel: this.#defaults.channel,
       executablePath: this.#defaults.executablePath,
       chromeArgs: this.#defaults.chromeArgs,
@@ -85,8 +88,8 @@ export class SessionService {
     return {sessionId: session.sessionId, body};
   }
 
-  listSessions(): string {
-    const sessions = this.#manager.listSessions();
+  listSessions(ownerId?: string): string {
+    const sessions = this.#manager.listSessions(ownerId);
     const lines = [`Total sessions: ${sessions.length}`, ''];
     for (const s of sessions) {
       lines.push(
@@ -99,8 +102,8 @@ export class SessionService {
     return lines.join('\n');
   }
 
-  async closeSession(sessionId: string): Promise<string> {
-    await this.#manager.closeSession(sessionId);
+  async closeSession(sessionId: string, ownerId?: string): Promise<string> {
+    await this.#manager.closeSession(sessionId, ownerId);
     return `Session "${sessionId}" closed successfully.`;
   }
 
