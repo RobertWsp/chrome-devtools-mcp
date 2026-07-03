@@ -615,6 +615,30 @@ describe('SessionManager', () => {
       assert.strictEqual((await registry.list()).length, 0);
     });
 
+    it('a restored session keeps its owner (isolation survives restart)', async () => {
+      const registry = await makeRegistry();
+      const manager = persistManager(registry);
+      const session = await manager.createSession({
+        headless: true,
+        ownerId: 'owner-1',
+      });
+      const id = session.sessionId;
+      await manager.detachAllSessions();
+
+      const manager2 = persistManager(registry);
+      assert.strictEqual(await manager2.restoreSessions(), 1);
+
+      // The owner still gates access after the restart.
+      assert.strictEqual(manager2.getSession(id, 'owner-1').sessionId, id);
+      assert.throws(() => manager2.getSession(id, 'owner-2'), /not found/i);
+      assert.throws(() => manager2.getSession(id), /not found/i);
+      // list is still owner-scoped.
+      assert.strictEqual(manager2.listSessions('owner-1').length, 1);
+      assert.strictEqual(manager2.listSessions('owner-2').length, 0);
+
+      await manager2.closeSession(id, 'owner-1');
+    });
+
     it('garbage-collects dead registry entries on restore', async () => {
       const registry = await makeRegistry();
       // Persist a bogus session whose browser is not running.

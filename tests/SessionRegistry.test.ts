@@ -35,6 +35,8 @@ describe('SessionRegistry', () => {
       userDataDir: registry.profileDir(id),
       createdAt: new Date().toISOString(),
       label: `label-${id}`,
+      // Owner must round-trip so a restored session keeps its isolation.
+      ownerId: `owner-${id}`,
     };
   }
 

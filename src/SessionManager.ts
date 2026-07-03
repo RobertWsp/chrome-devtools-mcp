@@ -156,6 +156,7 @@ export class SessionManager {
           createdAt: createdAt.toISOString(),
           label: options.label,
           pid: browser.process()?.pid,
+          ownerId: options.ownerId,
         });
       }
 
@@ -338,6 +339,8 @@ export class SessionManager {
           wsEndpoint: entry.wsEndpoint,
           userDataDir: entry.userDataDir,
           lastActivityAt: Date.now(),
+          // Preserve the owner so the restored session keeps its isolation.
+          ownerId: entry.ownerId,
         };
         browser.on('disconnected', () => {
           logger(`Session ${entry.sessionId} browser disconnected`);

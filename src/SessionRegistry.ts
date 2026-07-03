@@ -22,6 +22,12 @@ export interface PersistedSession {
   createdAt: string;
   label?: string;
   pid?: number;
+  /**
+   * Identity of the host session that owns this browser session. Persisted so
+   * a reconnected session keeps its isolation boundary across a subprocess
+   * restart instead of silently becoming ownerless (accessible to anyone).
+   */
+  ownerId?: string;
 }
 
 const DEFAULT_ROOT = path.join(
