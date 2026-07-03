@@ -356,28 +356,50 @@ export class SessionManager {
   }
 
   /**
-   * Closes sessions whose most recent activity is older than `sessionIdleMs`.
-   * A session's activity is the max of its own touch timestamp and its tabs'
-   * activity, so a session actively used through its tabs is never reaped.
-   * Returns the number of sessions closed.
+   * True when a session's most recent activity (max of its own touch timestamp
+   * and its tabs' activity, so a session used purely through its tabs counts)
+   * is older than `sessionIdleMs`.
+   */
+  #isSessionIdle(session: SessionInfo, sessionIdleMs: number): boolean {
+    const tabActivity = session.context.lastActivityAt() ?? 0;
+    const lastActivity = Math.max(session.lastActivityAt, tabActivity);
+    return Date.now() - lastActivity >= sessionIdleMs;
+  }
+
+  /**
+   * Closes sessions that have been fully idle for `sessionIdleMs`. Idleness is
+   * RE-CHECKED under the session mutex right before closing, so a session that
+   * received a tool call between the scan and the close is not reaped (avoids a
+   * time-of-check/time-of-use race with concurrent tool calls). Returns the
+   * number of sessions actually closed.
    */
   async reapIdleSessions(sessionIdleMs: number): Promise<number> {
-    const now = Date.now();
-    const stale: string[] = [];
-    for (const session of this.#sessions.values()) {
-      const tabActivity = session.context.lastActivityAt() ?? 0;
-      const lastActivity = Math.max(session.lastActivityAt, tabActivity);
-      if (now - lastActivity >= sessionIdleMs) {
-        stale.push(session.sessionId);
+    const candidates = [...this.#sessions.values()].filter(session =>
+      this.#isSessionIdle(session, sessionIdleMs),
+    );
+    let reaped = 0;
+    for (const session of candidates) {
+      const current = this.#sessions.get(session.sessionId);
+      if (!current) {
+        continue;
+      }
+      const guard = await current.mutex.acquire();
+      // Re-verify under the lock: a tool call may have touched the session
+      // while we waited for the mutex.
+      const stillIdle = this.#isSessionIdle(current, sessionIdleMs);
+      guard.dispose();
+      if (!stillIdle) {
+        continue;
+      }
+      logger(`Reaping idle session ${current.sessionId}`);
+      try {
+        await this.closeSession(current.sessionId);
+        reaped++;
+      } catch (err) {
+        logger(`Error reaping session ${current.sessionId}:`, err);
       }
     }
-    for (const id of stale) {
-      logger(`Reaping idle session ${id}`);
-      await this.closeSession(id).catch(err => {
-        logger(`Error reaping session ${id}:`, err);
-      });
-    }
-    return stale.length;
+    return reaped;
   }
 
   get sessionCount(): number {

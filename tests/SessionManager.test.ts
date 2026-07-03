@@ -18,6 +18,25 @@ const contextOptions = {
   performanceCrux: false,
 };
 
+/**
+ * Removes a directory, retrying briefly on ENOTEMPTY. Detached Chrome can keep
+ * flushing its profile for a moment after the browser is asked to close, which
+ * otherwise makes teardown flaky.
+ */
+async function rmWithRetry(dir: string, attempts = 5): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await fs.promises.rm(dir, {recursive: true, force: true});
+      return;
+    } catch (err) {
+      if (i === attempts - 1) {
+        throw err;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+}
+
 describe('SessionManager', () => {
   const managers: SessionManager[] = [];
 
@@ -329,6 +348,30 @@ describe('SessionManager', () => {
       assert.throws(() => manager.getSession(idle.sessionId));
     });
 
+    it('does not reap a session touched after the scan but before close (no TOCTOU)', async () => {
+      const manager = createManager();
+      const session = await manager.createSession({headless: true});
+      // Make it look idle so it becomes a reap candidate.
+      session.lastActivityAt = Date.now() - 60_000;
+
+      // Hold the session mutex, start the reap (it will block re-verifying
+      // under the lock), then touch the session and release. The re-check must
+      // see the fresh activity and skip the close.
+      const guard = await session.mutex.acquire();
+      const reapPromise = manager.reapIdleSessions(30_000);
+      await new Promise(r => setTimeout(r, 20));
+      manager.touchSession(session.sessionId);
+      guard.dispose();
+
+      const reaped = await reapPromise;
+      assert.strictEqual(
+        reaped,
+        0,
+        'freshly touched session must not be reaped',
+      );
+      assert.strictEqual(manager.sessionCount, 1);
+    });
+
     it('reapIdleSessions respects tab activity (session used via its tabs is kept)', async () => {
       const manager = createManager();
       const session = await manager.createSession({headless: true});
@@ -416,8 +459,17 @@ describe('SessionManager', () => {
     }
 
     afterEach(async () => {
+      // Detached Chrome may still be flushing its profile when we tear down,
+      // which makes a single rm race with ENOTEMPTY. Close the managers first
+      // (kills the browsers), then remove with a brief retry.
+      for (const m of managers) {
+        await m.closeAllSessions().catch(() => {
+          // best-effort; teardown continues regardless
+        });
+      }
+      managers.length = 0;
       for (const root of tempRoots) {
-        await fs.promises.rm(root, {recursive: true, force: true});
+        await rmWithRetry(root);
       }
       tempRoots.length = 0;
     });

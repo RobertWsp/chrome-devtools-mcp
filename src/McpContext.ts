@@ -507,28 +507,47 @@ export class McpContext implements Context {
   }
 
   /**
-   * Returns notices for non-selected tabs that have been idle longer than the
-   * threshold, asking the model to confirm whether to keep them open. Each
-   * idle tab is reported at most once until it is interacted with again.
+   * Single source of truth for "which non-selected tabs have been idle for at
+   * least `thresholdMs`". Both the idle-notice and idle-reap paths consume
+   * this so their notion of "idle" can never diverge.
+   *
+   * A tab seen for the first time has its idle clock started now (lazy init),
+   * so a tab the model never interacts with still becomes reapable a threshold
+   * later, instead of being invisible to the reaper.
    */
-  consumeIdleTabNotices(thresholdMs = IDLE_TAB_TIMEOUT_MS): string[] {
+  #idleTabs(thresholdMs: number): Array<{page: Page; idleMs: number}> {
     const now = Date.now();
-    const notices: string[] = [];
+    const result: Array<{page: Page; idleMs: number}> = [];
     for (const page of this.#pages) {
       if (page === this.#selectedPage || page.isClosed()) {
         continue;
       }
       let last = this.#pageLastActivity.get(page);
       if (last === undefined) {
-        // First time we see this tab: start its idle clock now.
         this.#pageLastActivity.set(page, now);
         last = now;
       }
-      if (now - last < thresholdMs || this.#idleWarnedPages.has(page)) {
+      const idleMs = now - last;
+      if (idleMs >= thresholdMs) {
+        result.push({page, idleMs});
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Returns notices for non-selected tabs that have been idle longer than the
+   * threshold, asking the model to confirm whether to keep them open. Each
+   * idle tab is reported at most once until it is interacted with again.
+   */
+  consumeIdleTabNotices(thresholdMs = IDLE_TAB_TIMEOUT_MS): string[] {
+    const notices: string[] = [];
+    for (const {page, idleMs} of this.#idleTabs(thresholdMs)) {
+      if (this.#idleWarnedPages.has(page)) {
         continue;
       }
       this.#idleWarnedPages.add(page);
-      const idleMinutes = Math.floor((now - last) / 60_000);
+      const idleMinutes = Math.floor(idleMs / 60_000);
       const pageId = this.getPageId(page);
       notices.push(
         `Tab ${pageId} (${page.url()}) has been idle for ~${idleMinutes} min. ` +
@@ -561,18 +580,9 @@ export class McpContext implements Context {
    * WITHOUT tearing the session down (the browser + selected tab survive).
    */
   async closeIdleTabs(thresholdMs = IDLE_TAB_TIMEOUT_MS): Promise<number> {
-    const now = Date.now();
-    // Snapshot candidates first; closing mutates the page list.
-    const candidates: Page[] = [];
-    for (const page of this.#pages) {
-      if (page === this.#selectedPage || page.isClosed()) {
-        continue;
-      }
-      const last = this.#pageLastActivity.get(page);
-      if (last !== undefined && now - last >= thresholdMs) {
-        candidates.push(page);
-      }
-    }
+    // Snapshot candidates first (via the shared idle predicate); closing
+    // mutates the page list.
+    const candidates = this.#idleTabs(thresholdMs).map(entry => entry.page);
     if (candidates.length === 0) {
       return 0;
     }
