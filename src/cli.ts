@@ -179,6 +179,18 @@ export const cliOptions = {
     describe:
       'Directory where .cdpflows/ and .env live. Defaults to the current working directory.',
   },
+  tabIdleMinutes: {
+    type: 'number',
+    default: 15,
+    describe:
+      'Minutes a non-selected tab may be idle before the server closes it (the session and its selected tab survive). Set 0 to disable idle tab reaping.',
+  },
+  sessionIdleMinutes: {
+    type: 'number',
+    default: 30,
+    describe:
+      'Minutes a whole session may be fully idle before the server closes its browser. Set 0 to disable idle session reaping.',
+  },
   chromeArg: {
     type: 'array',
     describe:

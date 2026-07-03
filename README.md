@@ -472,6 +472,16 @@ The Chrome DevTools MCP server supports the following configuration option:
   Directory where .cdpflows/ and .env live. Defaults to the current working directory.
   - **Type:** string
 
+- **`--tabIdleMinutes`/ `--tab-idle-minutes`**
+  Minutes a non-selected tab may be idle before the server closes it (the session and its selected tab survive). Set 0 to disable idle tab reaping.
+  - **Type:** number
+  - **Default:** `15`
+
+- **`--sessionIdleMinutes`/ `--session-idle-minutes`**
+  Minutes a whole session may be fully idle before the server closes its browser. Set 0 to disable idle session reaping.
+  - **Type:** number
+  - **Default:** `30`
+
 - **`--chromeArg`/ `--chrome-arg`**
   Additional arguments for Chrome. Only applies when Chrome is launched by chrome-devtools-mcp.
   - **Type:** array

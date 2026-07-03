@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### 🛠️ Fixes
+
+* resilience: sessions no longer all drop at once when the shared subprocess is idle. Instead of the host broker killing the whole process, the server now reaps gracefully in two tiers — non-selected idle tabs are closed first (`--tab-idle-minutes`, default 15; the session and its selected tab survive), and a whole session's browser is closed only after a longer full-idle window (`--session-idle-minutes`, default 30). A tool call resets both timers, and a session kept busy through its tabs is never reaped.
+* a synchronous throw in a stray event listener no longer crashes the server (added an `uncaughtException` guard), so one session's failure can't take the others down.
+
 ### 🎉 Features
 
 * experimental flow recorder/replayer behind `--experimental-flows`: every successful mutating browser action is recorded per session and can be saved as a reviewable `.cdp.ts` flow under `.cdpflows/`. A new `flow` tool exposes op=list/show/validate/exec/save/draft to reuse multi-step journeys (e.g. login) without re-deriving each tool call, saving tokens. Flows are modular (named steps), replay stops at the first failing step and reports it so the model can repair the flow with the live tools, and secrets are auto-extracted to a gitignored `.env` (with `.env.example`) and referenced via `env(...)` placeholders. On replay the flow's `.env` is loaded into the process (without overriding real env vars) so secret references resolve, and each action's deferred effects are finalized (via `McpResponse.handle`) so snapshot-dependent actions like fill/click-by-uid work. An embedded validation harness runs on every save/validate (schema, unknown-tool, timeout, and plaintext-secret checks).

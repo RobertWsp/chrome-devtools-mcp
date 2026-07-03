@@ -11,6 +11,7 @@ import process from 'node:process';
 import {parseArguments} from './cli.js';
 import {FlowController, type FlowOpParams} from './flows/FlowController.js';
 import {FlowService} from './flows/FlowService.js';
+import {IdleReaper} from './IdleReaper.js';
 import {loadIssueDescriptions} from './issue-descriptions.js';
 import {logger, saveLogsToFile} from './logger.js';
 import {McpResponse} from './McpResponse.js';
@@ -51,6 +52,13 @@ process.on('unhandledRejection', (reason, promise) => {
   logger('Unhandled promise rejection', promise, reason);
 });
 
+// A synchronous throw in a stray event listener (browser 'disconnected',
+// dialog handler, etc.) must never crash the whole server and take every
+// other session down with it. Log and keep serving.
+process.on('uncaughtException', (err, origin) => {
+  logger(`Uncaught exception (${origin}), continuing:`, err);
+});
+
 logger(`Starting Chrome DevTools MCP Server v${VERSION}`);
 const server = new McpServer(
   {
@@ -75,6 +83,22 @@ const sessionManager = new SessionManager(
   },
   {registry: sessionRegistry, detached: persistSessions},
 );
+
+// Reclaim resources for idle work WITHOUT killing active sessions: close idle
+// background tabs first (cheap), then close whole sessions only after a longer
+// full-idle window. Replaces the host broker's blunt kill-the-subprocess
+// behavior that took every session down at once.
+const tabIdleMs = Math.max(0, (args.tabIdleMinutes ?? 15) * 60_000);
+const sessionIdleMs = Math.max(0, (args.sessionIdleMinutes ?? 30) * 60_000);
+const idleReaper =
+  tabIdleMs > 0 || sessionIdleMs > 0
+    ? new IdleReaper(sessionManager, {
+        // A 0 flag disables that tier by pushing its threshold to Infinity.
+        tabIdleMs: tabIdleMs > 0 ? tabIdleMs : Number.POSITIVE_INFINITY,
+        sessionIdleMs:
+          sessionIdleMs > 0 ? sessionIdleMs : Number.POSITIVE_INFINITY,
+      })
+    : undefined;
 
 const sessionService = new SessionService(
   sessionManager,
@@ -155,6 +179,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
     return;
   }
   logger(`Received ${signal}, shutting down...`);
+  idleReaper?.stop();
   try {
     await Promise.race([
       sessionService.shutdown(),
@@ -321,8 +346,10 @@ function registerBrowserTool(tool: ToolDefinition): void {
           `${tool.name} [session=${sessionId}] request: ${JSON.stringify(params, null, '  ')}`,
         );
         const context = session.context;
-        // Interacting with a session resets the selected tab's idle timer.
+        // Interacting with a session resets both the tab and the session idle
+        // timers so the reaper never touches active work.
         context.touchSelectedPage();
+        sessionManager.touchSession(sessionId);
         await context.detectOpenDevToolsWindows();
         const response = new McpResponse();
         await tool.handler({params}, response, context);
@@ -407,6 +434,7 @@ try {
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+idleReaper?.start();
 logger('Chrome DevTools MCP Server connected (multi-session mode)');
 
 console.error(

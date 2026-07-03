@@ -259,5 +259,55 @@ describe('McpContext', () => {
         );
       });
     });
+
+    it('closeIdleTabs closes idle background tabs but keeps the selected one', async () => {
+      await withMcpContext(async (_response, context) => {
+        const first = context.getSelectedPage();
+        // Open two more tabs; the last becomes selected.
+        await context.newPage();
+        const third = await context.newPage();
+        assert.strictEqual(context.getPageCount(), 3);
+        assert.ok(context.isPageSelected(third));
+
+        // With a 0ms threshold every non-selected tab is idle.
+        const closed = await context.closeIdleTabs(0);
+        assert.strictEqual(closed, 2, 'both background tabs closed');
+        assert.strictEqual(context.getPageCount(), 1);
+        // The selected tab survives.
+        assert.ok(context.isPageSelected(context.getSelectedPage()));
+        // `first` was a background tab and is gone.
+        assert.ok(first.isClosed());
+      });
+    });
+
+    it('closeIdleTabs never closes the selected tab or drops below one', async () => {
+      await withMcpContext(async (_response, context) => {
+        // Single selected tab: nothing to close even at 0ms.
+        const closed = await context.closeIdleTabs(0);
+        assert.strictEqual(closed, 0);
+        assert.strictEqual(context.getPageCount(), 1);
+      });
+    });
+
+    it('closeIdleTabs keeps recently-touched background tabs', async () => {
+      await withMcpContext(async (_response, context) => {
+        const first = context.getSelectedPage();
+        await context.newPage(); // second, becomes selected
+        // `first` is a background tab; touch it so it is not idle.
+        context.touchPage(first);
+        const closed = await context.closeIdleTabs(IDLE_TAB_TIMEOUT_MS);
+        assert.strictEqual(closed, 0);
+        assert.strictEqual(context.getPageCount(), 2);
+      });
+    });
+
+    it('lastActivityAt reflects the most recent touch', async () => {
+      await withMcpContext(async (_response, context) => {
+        const before = Date.now();
+        context.touchSelectedPage();
+        const last = context.lastActivityAt();
+        assert.ok(last !== undefined && last >= before);
+      });
+    });
   });
 });

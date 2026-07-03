@@ -299,6 +299,67 @@ describe('SessionManager', () => {
     });
   });
 
+  describe('idle reaping', () => {
+    it('touchSession updates lastActivityAt', async () => {
+      const manager = createManager();
+      const session = await manager.createSession({headless: true});
+      const before = session.lastActivityAt;
+      await new Promise(r => setTimeout(r, 5));
+      manager.touchSession(session.sessionId);
+      assert.ok(session.lastActivityAt >= before);
+    });
+
+    it('reapIdleSessions closes fully-idle sessions and keeps active ones', async () => {
+      const manager = createManager();
+      const idle = await manager.createSession({headless: true});
+      const active = await manager.createSession({headless: true});
+
+      // A tiny window: after a short sleep both look "idle" by the window, so
+      // touch `active` right before reaping to keep it alive. `idle` is left
+      // untouched (its only activity is creation).
+      await new Promise(r => setTimeout(r, 30));
+      manager.touchSession(active.sessionId);
+      active.context.touchSelectedPage();
+
+      const reaped = await manager.reapIdleSessions(20);
+      assert.strictEqual(reaped, 1);
+      assert.strictEqual(manager.sessionCount, 1);
+      // The active session survives and still works.
+      assert.ok(active.browser.connected);
+      assert.throws(() => manager.getSession(idle.sessionId));
+    });
+
+    it('reapIdleSessions respects tab activity (session used via its tabs is kept)', async () => {
+      const manager = createManager();
+      const session = await manager.createSession({headless: true});
+      // Session-level timestamp is old, but a tab is touched right before
+      // reaping, so the max(session, tab) activity is fresh.
+      session.lastActivityAt = Date.now() - 60_000;
+      session.context.touchSelectedPage();
+
+      const reaped = await manager.reapIdleSessions(30_000);
+      assert.strictEqual(reaped, 0, 'tab activity keeps the session alive');
+      assert.strictEqual(manager.sessionCount, 1);
+    });
+
+    it('closeIdleTabsForAll closes idle tabs across sessions without dropping sessions', async () => {
+      const manager = createManager();
+      const a = await manager.createSession({headless: true});
+      const b = await manager.createSession({headless: true});
+      // Give each session a background tab.
+      await a.context.newPage();
+      await b.context.newPage();
+      assert.strictEqual(a.context.getPageCount(), 2);
+      assert.strictEqual(b.context.getPageCount(), 2);
+
+      const closed = await manager.closeIdleTabsForAll(0);
+      assert.strictEqual(closed, 2, 'one background tab closed per session');
+      assert.strictEqual(manager.sessionCount, 2, 'sessions are not dropped');
+      assert.strictEqual(a.context.getPageCount(), 1);
+      assert.strictEqual(b.context.getPageCount(), 1);
+    });
+  });
+
   describe('session isolation hardening', () => {
     it('never resolves a foreign session id', async () => {
       const manager = createManager();

@@ -538,6 +538,65 @@ export class McpContext implements Context {
     return notices;
   }
 
+  /**
+   * The most recent activity timestamp across the selected page and all tabs,
+   * used by the session reaper to decide when a whole session is idle. Falls
+   * back to `undefined` when nothing has been touched yet.
+   */
+  lastActivityAt(): number | undefined {
+    let latest: number | undefined;
+    for (const page of this.#pages) {
+      const t = this.#pageLastActivity.get(page);
+      if (t !== undefined && (latest === undefined || t > latest)) {
+        latest = t;
+      }
+    }
+    return latest;
+  }
+
+  /**
+   * Closes non-selected tabs that have been idle longer than the threshold,
+   * keeping the selected tab and always at least one tab open. Returns the
+   * number of tabs closed. This reclaims resources for a still-active session
+   * WITHOUT tearing the session down (the browser + selected tab survive).
+   */
+  async closeIdleTabs(thresholdMs = IDLE_TAB_TIMEOUT_MS): Promise<number> {
+    const now = Date.now();
+    // Snapshot candidates first; closing mutates the page list.
+    const candidates: Page[] = [];
+    for (const page of this.#pages) {
+      if (page === this.#selectedPage || page.isClosed()) {
+        continue;
+      }
+      const last = this.#pageLastActivity.get(page);
+      if (last !== undefined && now - last >= thresholdMs) {
+        candidates.push(page);
+      }
+    }
+    if (candidates.length === 0) {
+      return 0;
+    }
+    let closed = 0;
+    for (const page of candidates) {
+      // Never drop below one open tab, even if the selected page vanished.
+      if (this.#pages.length - closed <= 1) {
+        break;
+      }
+      try {
+        if (!page.isClosed()) {
+          await page.close({runBeforeUnload: false});
+          closed++;
+        }
+      } catch (err) {
+        this.logger('Error closing idle tab', err);
+      }
+    }
+    if (closed > 0) {
+      await this.createPagesSnapshot();
+    }
+    return closed;
+  }
+
   #updateSelectedPageTimeouts() {
     const page = this.getSelectedPage();
     // For waiters 5sec timeout should be sufficient.

@@ -24,6 +24,8 @@ export interface SessionInfo {
   /** Persisted reconnect endpoint, present for detached sessions. */
   wsEndpoint?: string;
   userDataDir?: string;
+  /** Last time a tool operated on this session (ms). Drives idle reaping. */
+  lastActivityAt: number;
 }
 
 export interface CreateSessionOptions {
@@ -123,6 +125,7 @@ export class SessionManager {
         label: options.label,
         wsEndpoint,
         userDataDir,
+        lastActivityAt: createdAt.getTime(),
       };
 
       browser.on('disconnected', () => {
@@ -291,6 +294,7 @@ export class SessionManager {
           label: entry.label,
           wsEndpoint: entry.wsEndpoint,
           userDataDir: entry.userDataDir,
+          lastActivityAt: Date.now(),
         };
         browser.on('disconnected', () => {
           logger(`Session ${entry.sessionId} browser disconnected`);
@@ -313,6 +317,67 @@ export class SessionManager {
   /** Live session objects, for in-process inspection (not serialized). */
   listSessionInfos(): SessionInfo[] {
     return [...this.#sessions.values()];
+  }
+
+  /**
+   * Marks a session as active now. Called at the start of every tool call so
+   * the idle reaper only tears down genuinely abandoned sessions.
+   */
+  touchSession(sessionId: string): void {
+    const session = this.#sessions.get(sessionId);
+    if (session) {
+      session.lastActivityAt = Date.now();
+    }
+  }
+
+  /**
+   * For every connected session, closes non-selected tabs idle beyond
+   * `tabIdleMs` (keeping the selected tab and at least one). Reclaims memory
+   * for still-active sessions without tearing them down. Runs each session
+   * under its mutex so it never races a concurrent tool call. Returns the
+   * total number of tabs closed.
+   */
+  async closeIdleTabsForAll(tabIdleMs: number): Promise<number> {
+    let total = 0;
+    for (const session of [...this.#sessions.values()]) {
+      if (!session.browser.connected) {
+        continue;
+      }
+      const guard = await session.mutex.acquire();
+      try {
+        total += await session.context.closeIdleTabs(tabIdleMs);
+      } catch (err) {
+        logger(`Error closing idle tabs for ${session.sessionId}:`, err);
+      } finally {
+        guard.dispose();
+      }
+    }
+    return total;
+  }
+
+  /**
+   * Closes sessions whose most recent activity is older than `sessionIdleMs`.
+   * A session's activity is the max of its own touch timestamp and its tabs'
+   * activity, so a session actively used through its tabs is never reaped.
+   * Returns the number of sessions closed.
+   */
+  async reapIdleSessions(sessionIdleMs: number): Promise<number> {
+    const now = Date.now();
+    const stale: string[] = [];
+    for (const session of this.#sessions.values()) {
+      const tabActivity = session.context.lastActivityAt() ?? 0;
+      const lastActivity = Math.max(session.lastActivityAt, tabActivity);
+      if (now - lastActivity >= sessionIdleMs) {
+        stale.push(session.sessionId);
+      }
+    }
+    for (const id of stale) {
+      logger(`Reaping idle session ${id}`);
+      await this.closeSession(id).catch(err => {
+        logger(`Error reaping session ${id}:`, err);
+      });
+    }
+    return stale.length;
   }
 
   get sessionCount(): number {
