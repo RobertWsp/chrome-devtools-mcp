@@ -84,6 +84,7 @@ export async function withMcpContext(
     debug?: boolean;
     autoOpenDevTools?: boolean;
     performanceCrux?: boolean;
+    tabIdleTimeoutMs?: number;
   } = {},
 ) {
   await withBrowser(async browser => {
@@ -97,6 +98,7 @@ export async function withMcpContext(
       {
         experimentalDevToolsDebugging: false,
         performanceCrux: options.performanceCrux ?? true,
+        tabIdleTimeoutMs: options.tabIdleTimeoutMs,
       },
       Locator,
     );

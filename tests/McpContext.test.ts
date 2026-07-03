@@ -309,5 +309,32 @@ describe('McpContext', () => {
         assert.ok(last !== undefined && last >= before);
       });
     });
+
+    it('the configured tabIdleTimeoutMs is the single source of truth for notice + reap', async () => {
+      await withMcpContext(
+        async (_response, context) => {
+          // getter exposes the configured value (SSoT).
+          assert.strictEqual(context.tabIdleTimeoutMs, 50);
+          const first = context.getSelectedPage();
+          await context.newPage(); // second, selected
+          // `first` was touched at creation; wait past the 50ms threshold.
+          await new Promise(r => setTimeout(r, 80));
+
+          // Notice uses the configured default (no explicit arg).
+          const notices = context.consumeIdleTabNotices();
+          assert.strictEqual(notices.length, 1);
+          assert.match(
+            notices[0],
+            new RegExp(`Tab ${context.getPageId(first)}`),
+          );
+
+          // Reap uses the same configured default and closes that tab.
+          const closed = await context.closeIdleTabs();
+          assert.strictEqual(closed, 1);
+          assert.strictEqual(context.getPageCount(), 1);
+        },
+        {tabIdleTimeoutMs: 50},
+      );
+    });
   });
 });

@@ -71,6 +71,13 @@ interface McpContextOptions {
   experimentalIncludeAllPages?: boolean;
   // Whether CrUX data should be fetched.
   performanceCrux: boolean;
+  /**
+   * Idle threshold (ms) a non-selected tab may sit unused before it is both
+   * reported to the model AND eligible for reaping. Single source of truth for
+   * the tab-idle policy so the notice and the reaper never disagree. Defaults
+   * to {@link IDLE_TAB_TIMEOUT_MS}.
+   */
+  tabIdleTimeoutMs?: number;
 }
 
 const DEFAULT_TIMEOUT = 5_000;
@@ -507,6 +514,15 @@ export class McpContext implements Context {
   }
 
   /**
+   * The configured tab-idle threshold (ms). Single source of truth used as the
+   * default for both the idle notice and the idle reap, so the message shown to
+   * the model and the reaper's behavior always agree.
+   */
+  get tabIdleTimeoutMs(): number {
+    return this.#options.tabIdleTimeoutMs ?? IDLE_TAB_TIMEOUT_MS;
+  }
+
+  /**
    * Single source of truth for "which non-selected tabs have been idle for at
    * least `thresholdMs`". Both the idle-notice and idle-reap paths consume
    * this so their notion of "idle" can never diverge.
@@ -540,7 +556,7 @@ export class McpContext implements Context {
    * threshold, asking the model to confirm whether to keep them open. Each
    * idle tab is reported at most once until it is interacted with again.
    */
-  consumeIdleTabNotices(thresholdMs = IDLE_TAB_TIMEOUT_MS): string[] {
+  consumeIdleTabNotices(thresholdMs = this.tabIdleTimeoutMs): string[] {
     const notices: string[] = [];
     for (const {page, idleMs} of this.#idleTabs(thresholdMs)) {
       if (this.#idleWarnedPages.has(page)) {
@@ -579,7 +595,7 @@ export class McpContext implements Context {
    * number of tabs closed. This reclaims resources for a still-active session
    * WITHOUT tearing the session down (the browser + selected tab survive).
    */
-  async closeIdleTabs(thresholdMs = IDLE_TAB_TIMEOUT_MS): Promise<number> {
+  async closeIdleTabs(thresholdMs = this.tabIdleTimeoutMs): Promise<number> {
     // Snapshot candidates first (via the shared idle predicate); closing
     // mutates the page list.
     const candidates = this.#idleTabs(thresholdMs).map(entry => entry.page);

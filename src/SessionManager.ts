@@ -46,6 +46,8 @@ export interface McpContextOptions {
   experimentalDevToolsDebugging: boolean;
   experimentalIncludeAllPages?: boolean;
   performanceCrux: boolean;
+  /** Idle threshold (ms) for tab notices + reaping (single source of truth). */
+  tabIdleTimeoutMs?: number;
 }
 
 export class SessionManager {

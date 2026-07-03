@@ -75,11 +75,21 @@ server.server.setRequestHandler(SetLevelRequestSchema, () => {
 const devtools = args.experimentalDevtools ?? false;
 const persistSessions = args.persistSessions ?? false;
 const sessionRegistry = persistSessions ? new SessionRegistry() : undefined;
+
+// Idle windows (single source of truth). `tabIdleMs` is shared by the model
+// notice ("tab idle N min") and the reaper so they never disagree; a whole
+// session's browser is only closed after the longer `sessionIdleMs`.
+const tabIdleMs = Math.max(0, (args.tabIdleMinutes ?? 15) * 60_000);
+const sessionIdleMs = Math.max(0, (args.sessionIdleMinutes ?? 30) * 60_000);
+
 const sessionManager = new SessionManager(
   {
     experimentalDevToolsDebugging: devtools,
     experimentalIncludeAllPages: args.experimentalIncludeAllPages,
     performanceCrux: args.performanceCrux,
+    // Propagate the configured tab-idle threshold so notices and reaping share
+    // one value. Infinity when disabled (no reaping, notice effectively off).
+    tabIdleTimeoutMs: tabIdleMs > 0 ? tabIdleMs : Number.POSITIVE_INFINITY,
   },
   {registry: sessionRegistry, detached: persistSessions},
 );
@@ -88,8 +98,6 @@ const sessionManager = new SessionManager(
 // background tabs first (cheap), then close whole sessions only after a longer
 // full-idle window. Replaces the host broker's blunt kill-the-subprocess
 // behavior that took every session down at once.
-const tabIdleMs = Math.max(0, (args.tabIdleMinutes ?? 15) * 60_000);
-const sessionIdleMs = Math.max(0, (args.sessionIdleMinutes ?? 30) * 60_000);
 const idleReaper =
   tabIdleMs > 0 || sessionIdleMs > 0
     ? new IdleReaper(sessionManager, {
