@@ -8,6 +8,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {generateFlowSource} from './codegen.js';
+import {ensureGitignored} from './env-file.js';
 import type {Flow} from './flow-model.js';
 import {FLOW_FILE_EXTENSION, FLOWS_DIR} from './flow-model.js';
 import {parseFlowSource} from './flow-parser.js';
@@ -96,6 +97,12 @@ export class FlowStore {
 
   async save(flow: Flow): Promise<string> {
     await this.#ensureDir();
+    // A flow's `.env` (created lazily when a secret is extracted) must never be
+    // committable. Guarantee the ignore up-front, on every save, so it holds
+    // even for flows that don't yet carry a secret. The `.cdpflows/` dir itself
+    // is INTENTIONALLY committable — sharing flows with the project is the
+    // whole point; only the secret store is ignored.
+    await ensureGitignored(this.#projectRoot, '.env');
     const now = new Date().toISOString();
     const toWrite: Flow = {
       ...flow,

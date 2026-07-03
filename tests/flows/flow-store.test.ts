@@ -62,6 +62,16 @@ describe('flow-store and env-file', () => {
     assert.match(runtime, /export function env/);
   });
 
+  it('gitignores .env on save (secrets never committable) but not .cdpflows', async () => {
+    const store = new FlowStore(root);
+    await store.save(flow);
+    const gitignore = await fs.readFile(path.join(root, '.gitignore'), 'utf8');
+    // The secret store is ignored...
+    assert.match(gitignore, /^\.env$/m);
+    // ...but the flows dir is intentionally committable (not ignored).
+    assert.doesNotMatch(gitignore, /\.cdpflows/);
+  });
+
   it('list returns empty when dir is missing', async () => {
     const store = new FlowStore(path.join(root, 'nope'));
     assert.deepStrictEqual(await store.list(), []);

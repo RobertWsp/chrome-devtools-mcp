@@ -190,6 +190,28 @@ async function flowNoticeForNewSession(
   return `${header}\nExisting flows: ${names.join('; ')}.`;
 }
 
+/**
+ * Appends any pending auto-save notices for the session to the tool response
+ * text, so the model is told (once) that a draft flow was created, why, and how
+ * to use/commit it. No-op when flows are disabled or nothing was auto-saved.
+ */
+function appendAutoSaveNotices(
+  sessionId: string,
+  content: CallToolResult['content'],
+): void {
+  const notices = flowService?.consumeAutoSaveNotices(sessionId) ?? [];
+  if (notices.length === 0) {
+    return;
+  }
+  const block = `## Flow auto-save\n${notices.join('\n')}`;
+  const text = content.find(part => part.type === 'text');
+  if (text && text.type === 'text') {
+    text.text += `\n\n${block}`;
+  } else {
+    content.push({type: 'text', text: block});
+  }
+}
+
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 async function gracefulShutdown(signal: string): Promise<void> {
@@ -400,6 +422,9 @@ function registerBrowserTool(tool: ToolDefinition): void {
         // Record the successful action for the flow recorder (filtered to
         // mutating browser actions inside observe()).
         flowService?.observe(sessionId, tool, params);
+        // Surface any auto-save notices (from a prior turn's async save) so the
+        // model learns a draft flow exists, why, and how to use/commit it.
+        appendAutoSaveNotices(sessionId, content);
         // Keep the on-demand tab-targeting tools in sync with the tab count.
         syncMultiTabTools();
         return {content};

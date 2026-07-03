@@ -64,6 +64,9 @@ export class FlowService {
   // Serializes auto-save per session so two fast actions can't race into a
   // double save + corrupt buffer trim.
   readonly #autoSaveMutex = new Map<string, Mutex>();
+  // One-shot notices describing auto-saved drafts, surfaced to the model on the
+  // next tool response so it knows the file exists, why, and how to use it.
+  readonly #autoSaveNotices = new Map<string, string[]>();
 
   constructor(options: FlowServiceOptions) {
     this.#defaultRoot = options.projectRoot;
@@ -140,6 +143,7 @@ export class FlowService {
     this.#recorders.delete(sessionId);
     this.#sessionRoot.delete(sessionId);
     this.#autoSaveMutex.delete(sessionId);
+    this.#autoSaveNotices.delete(sessionId);
   }
 
   /**
@@ -202,15 +206,48 @@ export class FlowService {
         env: [],
         steps: [{name: 'journey', actions: journey}],
       };
-      await this.saveFlow(draft, sessionId);
+      const {file} = await this.saveFlow(draft, sessionId);
       logger(
         `flow auto-saved "${draft.name}" (${journey.length} action(s)) for session ${sessionId}`,
       );
+      this.#queueAutoSaveNotice(sessionId, draft.name, journey.length, file);
       // Trim what we saved so the next journey records cleanly.
       recorder.retainTail(retain);
     } finally {
       guard.dispose();
     }
+  }
+
+  #queueAutoSaveNotice(
+    sessionId: string,
+    name: string,
+    actions: number,
+    file: string,
+  ): void {
+    const notice =
+      `Auto-saved a reusable browser flow "${name}" (${actions} action(s)) to ${file} ` +
+      `because a journey boundary was detected. It is a DRAFT: review it, rename it to something ` +
+      `meaningful with flow op=save, and replay it later with flow op=exec instead of re-deriving ` +
+      `the steps. The .cdpflows/ directory is meant to be committed with the project so the flow ` +
+      `is reusable; commit it deliberately (git add .cdpflows/${name}.cdp.ts) — do NOT sweep it into ` +
+      `an unrelated commit. Any secret values are kept out of the file and stored in a gitignored .env.`;
+    const list = this.#autoSaveNotices.get(sessionId) ?? [];
+    list.push(notice);
+    this.#autoSaveNotices.set(sessionId, list);
+  }
+
+  /**
+   * Returns and clears any pending auto-save notices for a session, so the
+   * transport can surface them to the model exactly once (mirrors the tab
+   * notice mechanism). Empty when nothing was auto-saved.
+   */
+  consumeAutoSaveNotices(sessionId: string): string[] {
+    const list = this.#autoSaveNotices.get(sessionId);
+    if (!list || list.length === 0) {
+      return [];
+    }
+    this.#autoSaveNotices.delete(sessionId);
+    return list;
   }
 
   /**

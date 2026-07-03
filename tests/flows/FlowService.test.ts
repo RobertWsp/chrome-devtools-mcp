@@ -199,6 +199,20 @@ describe('FlowService (integration)', () => {
     const list = await svc.list('s');
     assert.ok(list.length >= 1, 'a draft journey should be auto-saved');
     assert.match(list[0].name, /^auto-/);
+
+    // A one-shot notice is queued for the model, then cleared.
+    const notices = svc.consumeAutoSaveNotices('s');
+    assert.strictEqual(notices.length, 1);
+    assert.match(notices[0], /Auto-saved a reusable browser flow/);
+    assert.match(notices[0], /flow op=exec/);
+    assert.match(notices[0], /commit it deliberately/);
+    // Consumed exactly once.
+    assert.deepStrictEqual(svc.consumeAutoSaveNotices('s'), []);
+
+    // The .env secret store is gitignored, but .cdpflows stays committable.
+    const gitignore = await fs.readFile(path.join(root, '.gitignore'), 'utf8');
+    assert.match(gitignore, /^\.env$/m);
+    assert.doesNotMatch(gitignore, /\.cdpflows/);
   });
 
   it('serializes concurrent auto-saves without double-saving', async () => {

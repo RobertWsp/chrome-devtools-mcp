@@ -604,6 +604,28 @@ describe('flow scenarios e2e', () => {
 
       const listed = await call(client, 'flow', {op: 'list', sessionId});
       assert.match(listed, /\*\*auto-/);
+
+      // The auto-saved file exists under a COMMITTABLE .cdpflows dir...
+      const flowDir = path.join(projectRoot, '.cdpflows');
+      const files = await fs.readdir(flowDir);
+      assert.ok(
+        files.some(f => f.startsWith('auto-') && f.endsWith('.cdp.ts')),
+      );
+      // ...and .env (secret store) is gitignored, but .cdpflows is NOT.
+      const gitignore = await fs.readFile(
+        path.join(projectRoot, '.gitignore'),
+        'utf8',
+      );
+      assert.match(gitignore, /^\.env$/m);
+      assert.doesNotMatch(gitignore, /\.cdpflows/);
+
+      // The model is told about the auto-save on the next tool call.
+      const nextTurn = await call(client, 'navigate_page', {
+        sessionId,
+        url: 'data:text/html,<h1>after</h1>',
+      });
+      assert.match(nextTurn, /Flow auto-save/);
+      assert.match(nextTurn, /commit it deliberately/);
     });
   });
 });
