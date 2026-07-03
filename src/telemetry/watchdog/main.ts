@@ -13,7 +13,7 @@ import {logger, flushLogs, saveLogsToFile} from '../../logger.js';
 import type {OsType} from '../types.js';
 import {WatchdogMessageType} from '../types.js';
 
-import {ClearcutSender} from './ClearcutSender.js';
+import {ClearcutSender} from './clearcut-sender.js';
 
 interface WatchdogArgs {
   // Required arguments

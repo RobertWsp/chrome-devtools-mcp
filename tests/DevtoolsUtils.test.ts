@@ -5,7 +5,7 @@
  */
 
 import assert from 'node:assert';
-import {afterEach, describe, it} from 'node:test';
+import {describe, it} from 'node:test';
 
 import sinon from 'sinon';
 
@@ -95,10 +95,6 @@ describe('urlsEqual', () => {
 });
 
 describe('UniverseManager', () => {
-  afterEach(() => {
-    sinon.restore();
-  });
-
   it('calls the factory for existing pages', async () => {
     const browser = getMockBrowser();
     const factory = sinon.stub().resolves({});

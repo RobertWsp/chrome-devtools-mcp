@@ -142,9 +142,7 @@ async function runSingleScenario(
         name: request.name,
         args: (request.arguments as Record<string, unknown>) || {},
       });
-      const response = await originalCallTool(request, schema);
-      debugLog(`Tool response: ${JSON.stringify(response)}`);
-      return response;
+      return originalCallTool(request, schema);
     };
 
     const ai = new GoogleGenAI({apiKey});

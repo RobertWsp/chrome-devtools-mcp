@@ -168,6 +168,17 @@ export const cliOptions = {
     describe:
       'Keep browser sessions alive across server restarts. Sessions are launched detached with a per-session profile and reconnected on the next start.',
   },
+  experimentalFlows: {
+    type: 'boolean',
+    default: false,
+    describe:
+      'Enable the experimental flow recorder/replayer: records browser actions and exposes the `flow` tool to save/list/validate/replay reusable .cdp.ts flows under .cdpflows/.',
+  },
+  flowsProjectRoot: {
+    type: 'string',
+    describe:
+      'Directory where .cdpflows/ and .env live. Defaults to the current working directory.',
+  },
   chromeArg: {
     type: 'array',
     describe:

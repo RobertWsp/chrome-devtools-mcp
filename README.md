@@ -463,6 +463,15 @@ The Chrome DevTools MCP server supports the following configuration option:
   - **Type:** boolean
   - **Default:** `false`
 
+- **`--experimentalFlows`/ `--experimental-flows`**
+  Enable the experimental flow recorder/replayer: records browser actions and exposes the `flow` tool to save/list/validate/replay reusable .cdp.ts flows under .cdpflows/.
+  - **Type:** boolean
+  - **Default:** `false`
+
+- **`--flowsProjectRoot`/ `--flows-project-root`**
+  Directory where .cdpflows/ and .env live. Defaults to the current working directory.
+  - **Type:** string
+
 - **`--chromeArg`/ `--chrome-arg`**
   Additional arguments for Chrome. Only applies when Chrome is launched by chrome-devtools-mcp.
   - **Type:** array

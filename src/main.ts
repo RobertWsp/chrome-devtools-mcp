@@ -9,6 +9,8 @@ import './polyfill.js';
 import process from 'node:process';
 
 import {parseArguments} from './cli.js';
+import {FlowController, type FlowOpParams} from './flows/FlowController.js';
+import {FlowService} from './flows/FlowService.js';
 import {loadIssueDescriptions} from './issue-descriptions.js';
 import {logger, saveLogsToFile} from './logger.js';
 import {McpResponse} from './McpResponse.js';
@@ -98,6 +100,52 @@ function syncMultiTabTools(): void {
   );
 }
 
+// Experimental flow recorder/replayer. When enabled, every successful mutating
+// browser action is buffered per session, and the `flow` tool is exposed to
+// save/list/validate/replay reusable .cdp.ts flows.
+const flowsEnabled = args.experimentalFlows ?? false;
+const flowService = flowsEnabled
+  ? new FlowService({
+      projectRoot: args.flowsProjectRoot ?? process.cwd(),
+      tools,
+    })
+  : undefined;
+
+// Renders the op-based `flow` tool. exec runs against a session under its
+// mutex; resolution + locking stay in the transport (this module) so the
+// controller is decoupled from SessionManager.
+const flowController = flowService
+  ? new FlowController(flowService, async (sessionId, run) => {
+      const session = sessionManager.getSession(sessionId);
+      const guard = await session.mutex.acquire();
+      try {
+        return await run(session.context);
+      } finally {
+        guard.dispose();
+      }
+    })
+  : undefined;
+
+/**
+ * When flows are enabled, produce a short reminder listing reusable flows so
+ * the model checks for an existing one before re-deriving a journey.
+ */
+async function flowNoticeForNewSession(): Promise<string | undefined> {
+  if (!flowService) {
+    return undefined;
+  }
+  const flows = await flowService.list();
+  const header =
+    'Flow recording is active. Before building a multi-step journey, reuse an existing flow with the `flow` tool (op=list, op=exec) when possible; save new journeys with op=save.';
+  if (flows.length === 0) {
+    return header;
+  }
+  const names = flows.map(
+    f => `${f.name} (${f.description || 'no description'})`,
+  );
+  return `${header}\nExisting flows: ${names.join('; ')}.`;
+}
+
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 async function gracefulShutdown(signal: string): Promise<void> {
@@ -135,16 +183,25 @@ const sessionToolHandlers: Record<
   string,
   (params: Record<string, unknown>) => Promise<string>
 > = {
-  create_session: params =>
-    sessionService.createSession({
+  create_session: async params => {
+    const body = await sessionService.createSession({
       headless: params.headless as boolean | undefined,
       viewport: params.viewport as string | undefined,
       label: params.label as string | undefined,
       url: params.url as string | undefined,
-    }),
+    });
+    // Nudge the model to reuse existing flows before deriving a new journey.
+    const flowNotice = await flowNoticeForNewSession();
+    return flowNotice ? `${body}\n\n${flowNotice}` : body;
+  },
   list_sessions: async () => sessionService.listSessions(),
-  close_session: params =>
-    sessionService.closeSession(params.sessionId as string),
+  close_session: async params => {
+    const sessionId = params.sessionId as string;
+    const result = await sessionService.closeSession(sessionId);
+    // Drop the session's action recording buffer to avoid leaks.
+    flowService?.disposeRecorder(sessionId);
+    return result;
+  },
 };
 
 function registerSessionTool(tool: ToolDefinition): void {
@@ -262,6 +319,9 @@ function registerBrowserTool(tool: ToolDefinition): void {
         await tool.handler({params}, response, context);
         // McpResponse owns the response text, including tab lifecycle notices.
         const {content} = await response.handle(tool.name, context);
+        // Record the successful action for the flow recorder (filtered to
+        // mutating browser actions inside observe()).
+        flowService?.observe(sessionId, tool, params);
         // Keep the on-demand tab-targeting tools in sync with the tab count.
         syncMultiTabTools();
         return {content};
@@ -279,9 +339,46 @@ function registerBrowserTool(tool: ToolDefinition): void {
   }
 }
 
+/**
+ * Registers the experimental `flow` tool. Op logic lives in FlowController;
+ * this only adapts params <-> CallToolResult and locks the session for exec.
+ */
+function registerFlowTool(
+  tool: ToolDefinition,
+  controller: FlowController,
+): void {
+  const schemaWithSession = {
+    ...tool.schema,
+    sessionId: sessionIdSchema.optional(),
+  };
+  server.registerTool(
+    tool.name,
+    {
+      description: tool.description,
+      inputSchema: schemaWithSession,
+      annotations: tool.annotations,
+    },
+    async (rawParams): Promise<CallToolResult> => {
+      const params = rawParams as FlowOpParams;
+      try {
+        logger(`flow op=${params.op} name=${params.name ?? ''}`);
+        const body = await controller.handle(params);
+        return textResult(`# flow response\n${body}`);
+      } catch (err) {
+        logger('flow tool error:', err);
+        return errorResult(err);
+      }
+    },
+  );
+}
+
 for (const tool of tools) {
   if (sessionToolNames.has(tool.name)) {
     registerSessionTool(tool);
+  } else if (tool.name === 'flow') {
+    if (flowsEnabled && flowController) {
+      registerFlowTool(tool, flowController);
+    }
   } else {
     registerBrowserTool(tool);
   }
