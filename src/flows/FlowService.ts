@@ -205,7 +205,7 @@ export class FlowService {
       }
       const draft: Flow = {
         name: decision.suggestedName,
-        description: `Auto-saved journey (${decision.reason ?? 'boundary'}). Rename/refine with flow op=save.`,
+        description: `Auto-saved reusable journey (${decision.reason ?? 'boundary'}). Commit this file; rename/refine with flow op=save.`,
         env: [],
         steps: [{name: 'journey', actions: journey}],
       };
@@ -227,13 +227,16 @@ export class FlowService {
     actions: number,
     file: string,
   ): void {
+    const rel = `.cdpflows/${name}.cdp.ts`;
     const notice =
-      `Auto-saved a reusable browser flow "${name}" (${actions} action(s)) to ${file} ` +
-      `because a journey boundary was detected. It is a DRAFT: review it, rename it to something ` +
-      `meaningful with flow op=save, and replay it later with flow op=exec instead of re-deriving ` +
-      `the steps. The .cdpflows/ directory is meant to be committed with the project so the flow ` +
-      `is reusable; commit it deliberately (git add .cdpflows/${name}.cdp.ts) — do NOT sweep it into ` +
-      `an unrelated commit. Any secret values are kept out of the file and stored in a gitignored .env.`;
+      `A reusable browser flow "${name}" (${actions} action(s)) was auto-saved to ${file}. ` +
+      `ACTION: commit this file to the repository so the flow is reusable later. Run exactly: ` +
+      `git add ${rel} && git commit -m "add ${name} browser flow". This file BELONGS in version ` +
+      `control — it is project source, not a throwaway or isolated artifact. The only caveat is ` +
+      `scope: stage just this path (never git add -A) so you do not also commit the user's ` +
+      `unrelated work in progress. You may rename/refine it first with flow op=save and replay it ` +
+      `with flow op=exec. Secret values are never in this file; they live in a gitignored .env, so ` +
+      `committing it is safe.`;
     const list = this.#autoSaveNotices.get(sessionId) ?? [];
     list.push(notice);
     this.#autoSaveNotices.set(sessionId, list);
@@ -284,8 +287,12 @@ export class FlowService {
       '3. Only if none fits, perform the journey with the browser tools, then ' +
         'save it: `flow` op=draft to read the recorded actions, regroup them ' +
         'into named steps, and `flow` op=save name=<name> with the steps JSON. ' +
-        'Completed journeys are also auto-saved as `auto-*` drafts you can ' +
+        'Completed journeys are also auto-saved as `auto-*` files you can ' +
         'rename/refine.',
+      '4. Flow files (.cdpflows/*.cdp.ts) are project source: COMMIT them to ' +
+        'the repository so they are reusable later. Stage the specific file ' +
+        '(git add .cdpflows/<name>.cdp.ts), never git add -A, so you do not ' +
+        "commit the user's unrelated work. Secrets stay in a gitignored .env.",
     ];
     if (flows.length > 0) {
       lines.push(

@@ -226,9 +226,12 @@ describe('FlowService (integration)', () => {
     // A one-shot notice is queued for the model, then cleared.
     const notices = svc.consumeAutoSaveNotices('s');
     assert.strictEqual(notices.length, 1);
-    assert.match(notices[0], /Auto-saved a reusable browser flow/);
+    assert.match(notices[0], /reusable browser flow/);
     assert.match(notices[0], /flow op=exec/);
-    assert.match(notices[0], /commit it deliberately/);
+    // Leads with the affirmative commit action, not a negation.
+    assert.match(notices[0], /ACTION: commit this file/);
+    assert.match(notices[0], /git add \.cdpflows\//);
+    assert.match(notices[0], /never git add -A/);
     // Consumed exactly once.
     assert.deepStrictEqual(svc.consumeAutoSaveNotices('s'), []);
 

@@ -625,7 +625,8 @@ describe('flow scenarios e2e', () => {
         url: 'data:text/html,<h1>after</h1>',
       });
       assert.match(nextTurn, /Flow auto-save/);
-      assert.match(nextTurn, /commit it deliberately/);
+      assert.match(nextTurn, /ACTION: commit this file/);
+      assert.match(nextTurn, /git add \.cdpflows\//);
     });
   });
 });
