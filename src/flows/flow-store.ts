@@ -32,6 +32,13 @@ export interface FlowContext {
   step(name: string, run: () => Promise<void>): Promise<void>;
   step(name: string, description: string, run: () => Promise<void>): Promise<void>;
   run(tool: string, params: Record<string, unknown>): Promise<void>;
+  /**
+   * Guard verified before the step's actions run: the selector must be present
+   * (and visible) within timeoutMs, else the step FAILS (never skips). Call it
+   * as the first statement of a step when the step assumes the page is already
+   * in a given state; a step that begins with a direct navigation needs none.
+   */
+  require(selector: string, timeoutMs?: number): Promise<void>;
 }
 
 export interface FlowDefinition {

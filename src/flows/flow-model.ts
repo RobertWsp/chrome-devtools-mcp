@@ -47,9 +47,31 @@ export const flowActionSchema = zod.object({
 });
 export type FlowAction = zod.infer<typeof flowActionSchema>;
 
+/**
+ * A step precondition: a guard that must hold BEFORE the step's actions run,
+ * so replay verifies the page is in the expected state instead of blindly
+ * firing clicks/fills that would fail cryptically (or worse, act on the wrong
+ * page). It is a VERIFICATION gate, never a skip: if it does not hold, the step
+ * FAILS with a clear message. Steps are never skipped.
+ *
+ *   selector  a CSS selector that must resolve to a visible element before the
+ *             step runs (e.g. the login form must be present to fill it).
+ *   timeoutMs how long to wait for it to appear (default 5000).
+ *
+ * A step whose first action is a direct navigation needs no precondition (the
+ * navigation establishes the page), so this is optional.
+ */
+export const stepPreconditionSchema = zod.object({
+  selector: zod.string().min(1),
+  timeoutMs: zod.number().int().positive().optional(),
+});
+export type StepPrecondition = zod.infer<typeof stepPreconditionSchema>;
+
 export const flowStepSchema = zod.object({
   name: zod.string().min(1),
   description: zod.string().optional(),
+  /** Optional guard verified before the step runs (never a skip). */
+  precondition: stepPreconditionSchema.optional(),
   actions: zod.array(flowActionSchema),
 });
 export type FlowStep = zod.infer<typeof flowStepSchema>;

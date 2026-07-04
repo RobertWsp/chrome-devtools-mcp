@@ -70,10 +70,27 @@ describe('flow-messaging (single source of truth for model copy)', () => {
     const notice = firstInteractionNotice([summary('login', 'logs in')]);
     assert.match(notice, /flow` op=list/);
     assert.match(notice, /flow` op=exec/);
-    assert.match(notice, /Existing flows in this project/);
+    assert.match(notice, /Named flows \(prefer reusing one\)/);
     assert.match(notice, /login \(logs in\)/);
     // Embeds the shared commit guidance verbatim (no divergence).
     assert.ok(notice.includes(commitGuidance()));
+  });
+
+  it('firstInteractionNotice collapses auto-* drafts to a count (no spam)', () => {
+    // Regression: the raw list repeated the boilerplate auto-save description
+    // once per draft, flooding the notice.
+    const notice = firstInteractionNotice([
+      summary('login', 'logs in'),
+      summary('auto-shop-test-20260101-000000', 'Auto-saved reusable journey.'),
+      summary('auto-shop-test-20260101-000100', 'Auto-saved reusable journey.'),
+      summary('auto-shop-test-20260101-000200', 'Auto-saved reusable journey.'),
+    ]);
+    // The named flow is shown; the three drafts collapse to a single count.
+    assert.match(notice, /login \(logs in\)/);
+    assert.match(notice, /3 unnamed auto-saved draft\(s\)/);
+    // The boilerplate description is not repeated per draft.
+    const occurrences = notice.match(/Auto-saved reusable journey/g) ?? [];
+    assert.strictEqual(occurrences.length, 0);
   });
 
   it('firstInteractionNotice frames recording as passive (no mid-task nudging)', () => {

@@ -116,6 +116,7 @@ function parseStep(call: ts.CallExpression): FlowStep {
   }
 
   const actions: FlowAction[] = [];
+  let precondition: FlowStep['precondition'];
   const body = cb ? arrowBody(cb) : undefined;
   if (body) {
     const visit = (node: ts.Node): void => {
@@ -123,12 +124,32 @@ function parseStep(call: ts.CallExpression): FlowStep {
         actions.push(parseAction(node));
         return;
       }
+      if (isMethodCall(node, 'require')) {
+        precondition = parsePrecondition(node);
+        return;
+      }
       ts.forEachChild(node, visit);
     };
     visit(body);
   }
 
-  return description ? {name, description, actions} : {name, actions};
+  const step: FlowStep = {name, actions};
+  if (description) {
+    step.description = description;
+  }
+  if (precondition) {
+    step.precondition = precondition;
+  }
+  return step;
+}
+
+function parsePrecondition(call: ts.CallExpression): FlowStep['precondition'] {
+  const [selectorArg, timeoutArg] = call.arguments;
+  const selector = literalString(selectorArg);
+  const timeout = timeoutArg ? literal(timeoutArg) : undefined;
+  return typeof timeout === 'number'
+    ? {selector, timeoutMs: timeout}
+    : {selector};
 }
 
 function parseAction(call: ts.CallExpression): FlowAction {

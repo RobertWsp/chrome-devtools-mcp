@@ -59,14 +59,29 @@ export const flow = defineTool({
       .string()
       .optional()
       .describe('For op=exec: replay only up to and including this step.'),
+    startAtStep: zod
+      .string()
+      .optional()
+      .describe(
+        'For op=exec: start replay at this step (skipping the steps BEFORE it). ' +
+          'Combined with stopAtStep it replays a contiguous range. Steps WITHIN ' +
+          'the range are never skipped; each still verifies its precondition. ' +
+          'Use this to resume a flow when the earlier steps are already done ' +
+          '(e.g. already logged in).',
+      ),
     steps: zod
       .string()
       .optional()
       .describe(
         'For op=save: optional JSON array of semantic steps ' +
-          '([{name, description?, actions:[{tool, params}]}]) to store instead ' +
-          'of the raw single-step recording. Use op=draft to get the raw ' +
-          'actions, then regroup them into named steps.',
+          '([{name, description?, precondition?, actions:[{tool, params}]}]) to ' +
+          'store instead of the raw single-step recording. Use op=draft to get ' +
+          'the raw actions, then regroup them into named steps. `precondition` ' +
+          '({selector, timeoutMs?}) guards a step that assumes the page is ' +
+          'already in a given state (e.g. a form is present): on replay the ' +
+          'selector must be visible or the step FAILS (steps are never ' +
+          'skipped). Omit it for a step whose first action is a direct ' +
+          'navigation, which establishes the page itself.',
       ),
   },
   handler: notWired,

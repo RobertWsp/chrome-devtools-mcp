@@ -6,6 +6,12 @@
 
 import type {Context} from '../tools/ToolDefinition.js';
 
+import {
+  execResult,
+  listResult,
+  saveResult,
+  validateResult,
+} from './flow-messaging.js';
 import {parseFlowSteps} from './flow-model.js';
 import type {FlowService} from './FlowService.js';
 
@@ -14,6 +20,7 @@ export interface FlowOpParams {
   name?: string;
   description?: string;
   stopAtStep?: string;
+  startAtStep?: string;
   sessionId?: string;
   steps?: string;
   /** Transport-level owner id (isolation); not a model-facing param. */
@@ -106,15 +113,7 @@ export class FlowController {
   }
 
   async #list(sessionId?: string): Promise<string> {
-    const flows = await this.#service.list(sessionId);
-    if (flows.length === 0) {
-      return 'No saved flows yet. Actions are being recorded; use op=save to persist one.';
-    }
-    const lines = flows.map(
-      f =>
-        `- **${f.name}** — ${f.description || 'no description'} (${f.steps} step(s), ${f.actions} action(s)${f.env.length ? `, env: ${f.env.join(', ')}` : ''})`,
-    );
-    return `Saved flows:\n${lines.join('\n')}`;
+    return listResult(await this.#service.list(sessionId));
   }
 
   async #show(name: string, sessionId?: string): Promise<string> {
@@ -123,11 +122,10 @@ export class FlowController {
   }
 
   async #validate(name: string, sessionId?: string): Promise<string> {
-    const result = await this.#service.validateStored(name, sessionId);
-    const lines = result.issues.map(i => `- [${i.severity}] ${i.message}`);
-    return `Validation of "${name}": ${result.valid ? 'valid' : 'INVALID'}\n${
-      lines.join('\n') || 'No issues.'
-    }`;
+    return validateResult(
+      name,
+      await this.#service.validateStored(name, sessionId),
+    );
   }
 
   #draft(sessionId: string): string {
@@ -161,16 +159,7 @@ export class FlowController {
       params.description ?? '',
       steps,
     );
-    const warnings = validation.issues
-      .filter(i => i.severity === 'warning')
-      .map(i => `- ${i.message}`);
-    return [
-      `Saved flow "${name}" to ${file}.`,
-      this.#service.summarize(flow),
-      warnings.length ? `Warnings:\n${warnings.join('\n')}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
+    return saveResult(name, file, flow, validation);
   }
 
   async #exec(params: FlowOpParams): Promise<string> {
@@ -178,19 +167,11 @@ export class FlowController {
     const sessionId = this.#requireSession(params);
     return this.#runInSession(sessionId, params.owner, async context => {
       const result = await this.#service.exec(name, context, {
+        startAtStep: params.startAtStep,
         stopAtStep: params.stopAtStep,
         sessionId,
       });
-      const stepLines = result.steps.map(s =>
-        s.status === 'passed'
-          ? `- ${s.name}: passed (${s.actionsRun} action(s))`
-          : `- ${s.name}: FAILED at ${s.failedAction} — ${s.error}`,
-      );
-      const footer =
-        result.status === 'failed'
-          ? `\nStep "${result.steps[result.failedStepIndex]?.name}" failed. Use the browser tools to inspect and fix, then update the flow with op=save or by editing the .cdp.ts file.`
-          : '\nAll steps passed.';
-      return `Replay of "${name}": ${result.status}\n${stepLines.join('\n')}${footer}`;
+      return execResult(name, result);
     });
   }
 }

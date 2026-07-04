@@ -47,7 +47,6 @@ function fakeService(flows: unknown[] = []) {
       failedStepIndex: -1,
       steps: [{name: 'main', status: 'passed' as const, actionsRun: 2}],
     }),
-    summarize: (flow: {name: string}) => `${flow.name}: summary`,
   } as unknown as FlowService;
 }
 
@@ -78,7 +77,7 @@ describe('FlowController', () => {
       allowGuard,
     );
     const out = await c.handle({op: 'list'});
-    assert.match(out, /\*\*login\*\*/);
+    assert.match(out, /login — demo/);
     assert.match(out, /env: PW/);
   });
 
@@ -114,7 +113,10 @@ describe('FlowController', () => {
     const c = new FlowController(fakeService(), passthroughRunner, allowGuard);
     const out = await c.handle({op: 'save', name: 'login', sessionId: 's'});
     assert.match(out, /Saved flow "login"/);
-    assert.match(out, /login: summary/);
+    // Leads with the success glyph and carries the summary line + commit tip.
+    assert.match(out, /\u2713 Saved flow/);
+    assert.match(out, /1 step\(s\)|0 step\(s\)/);
+    assert.match(out, /MUST be committed/);
   });
 
   it('exec: runs through the session runner', async () => {

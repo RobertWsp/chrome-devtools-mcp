@@ -48,6 +48,7 @@ export interface ExecutorDeps {
 }
 
 const DEFAULT_ACTION_TIMEOUT_MS = 30_000;
+const DEFAULT_PRECONDITION_TIMEOUT_MS = 5_000;
 
 /**
  * Replays a {@link Flow} against a live session. Actions are executed by
@@ -70,24 +71,29 @@ export class FlowExecutor {
     flow: Flow,
     context: Context,
     options: {
+      /** Start replay at this step (skip the ones BEFORE it). */
+      startAtStep?: string;
+      /** Stop after this step (skip the ones AFTER it). */
       stopAtStep?: string;
       /** Overrides env resolution for this run (per-project .env). */
       getEnv?: (name: string) => string | undefined;
     } = {},
   ): Promise<ExecutionResult> {
+    const getEnv = options.getEnv ?? this.#deps.getEnv;
+    // Resolve the CONTIGUOUS [start, stop] window. Steps within the window are
+    // never skipped -- start/stop only trim the ends (resume an already-done
+    // prefix, or stop early); everything between runs in order.
+    const {start, stop} = this.#resolveWindow(flow, options);
+
     const steps: StepResult[] = [];
     let failedStepIndex = -1;
-    const getEnv = options.getEnv ?? this.#deps.getEnv;
 
-    for (let i = 0; i < flow.steps.length; i++) {
+    for (let i = start; i <= stop; i++) {
       const step = flow.steps[i];
       const result = await this.#runStep(step, context, getEnv);
       steps.push(result);
       if (result.status === 'failed') {
         failedStepIndex = i;
-        break;
-      }
-      if (options.stopAtStep && step.name === options.stopAtStep) {
         break;
       }
     }
@@ -100,11 +106,61 @@ export class FlowExecutor {
     };
   }
 
+  /**
+   * Resolves the contiguous [start, stop] index window from optional
+   * start/stop step NAMES. Unknown names throw (never silently run the whole
+   * flow), and start>stop throws (an inverted range is a mistake, not a skip).
+   */
+  #resolveWindow(
+    flow: Flow,
+    options: {startAtStep?: string; stopAtStep?: string},
+  ): {start: number; stop: number} {
+    const indexOf = (label: string, name: string): number => {
+      const idx = flow.steps.findIndex(s => s.name === name);
+      if (idx === -1) {
+        throw new Error(
+          `${label} "${name}" is not a step of flow "${flow.name}". Steps: ${flow.steps
+            .map(s => s.name)
+            .join(', ')}.`,
+        );
+      }
+      return idx;
+    };
+    const start = options.startAtStep
+      ? indexOf('startAtStep', options.startAtStep)
+      : 0;
+    const stop = options.stopAtStep
+      ? indexOf('stopAtStep', options.stopAtStep)
+      : flow.steps.length - 1;
+    if (start > stop) {
+      throw new Error(
+        `startAtStep "${options.startAtStep}" comes after stopAtStep "${options.stopAtStep}" in flow "${flow.name}"; the range is empty.`,
+      );
+    }
+    return {start, stop};
+  }
+
   async #runStep(
     step: FlowStep,
     context: Context,
     getEnv: (name: string) => string | undefined,
   ): Promise<StepResult> {
+    // Verify the step's precondition first: replay must confirm the page is in
+    // the expected state, never blindly fire actions or silently skip. An
+    // unmet precondition is a FAILURE with a clear, actionable message.
+    if (step.precondition) {
+      const unmet = await this.#checkPrecondition(step.precondition, context);
+      if (unmet) {
+        return {
+          name: step.name,
+          status: 'failed',
+          actionsRun: 0,
+          failedAction: 'precondition',
+          error: unmet,
+        };
+      }
+    }
+
     let actionsRun = 0;
     for (const action of step.actions) {
       try {
@@ -121,6 +177,41 @@ export class FlowExecutor {
       }
     }
     return {name: step.name, status: 'passed', actionsRun};
+  }
+
+  /**
+   * Returns an error message when the precondition is NOT satisfied, or
+   * undefined when it holds. Waits up to `timeoutMs` for the selector to
+   * appear so a step that legitimately follows a navigation still passes once
+   * the page settles.
+   */
+  async #checkPrecondition(
+    precondition: NonNullable<FlowStep['precondition']>,
+    context: Context,
+  ): Promise<string | undefined> {
+    const timeout = precondition.timeoutMs ?? DEFAULT_PRECONDITION_TIMEOUT_MS;
+    let page: ReturnType<Context['getSelectedPage']>;
+    try {
+      page = context.getSelectedPage();
+    } catch (err) {
+      return `precondition could not resolve the active page: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+    try {
+      await page.waitForSelector(precondition.selector, {
+        visible: true,
+        timeout,
+      });
+      return undefined;
+    } catch {
+      return (
+        `precondition not met: expected element "${precondition.selector}" to be ` +
+        `present on ${page.url()} within ${timeout}ms. The page is not in the ` +
+        `expected state for this step; inspect it with the browser tools and ` +
+        `repair the flow (update the step's actions or its precondition).`
+      );
+    }
   }
 
   async #runAction(

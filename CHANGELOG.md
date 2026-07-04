@@ -4,6 +4,25 @@
 
 ### 🛠️ Fixes
 
+* per-step flow feedback: `flow` op=exec/save/list/validate results now lead each
+  line with a semantic status glyph (✓ passed / ✗ failed / ℹ note) so the host TUI
+  paints the replay ledger and the save confirmation by outcome (green success,
+  red failure, blue note) instead of undifferentiated grey. The result copy moved
+  into the `flow-messaging` SSoT (FlowController now delegates).
+* step preconditions: a step may declare a `precondition` ({selector, timeoutMs?})
+  emitted as `ctx.require(...)` in the `.cdp.ts`. On replay the executor verifies
+  the element is present before running the step and FAILS with a clear message if
+  not — steps are never silently skipped. A step that begins with a direct
+  navigation needs no precondition.
+* step-range replay: `flow` op=exec accepts `startAtStep` (in addition to
+  `stopAtStep`) to replay a CONTIGUOUS range — useful to resume a flow whose early
+  steps are already done. Steps within the range still run in full (no skipping);
+  an unknown step name is a hard error, never a silent full run.
+* auto-save names are meaningful: drafts are named from the first navigation's
+  host + path (e.g. `auto-app-example-com-login-20260101-120000`) with a sortable
+  date-time suffix instead of an opaque epoch. The onboarding notice collapses the
+  `auto-*` drafts to a single count instead of repeating their boilerplate
+  description once per draft.
 * flow recording is now framed as PASSIVE in the first-interaction teaching: it
   tells the model its actions are recorded automatically and it does NOT need to
   call the `flow` tool during ordinary navigation, only when about to REPEAT a

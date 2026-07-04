@@ -5,8 +5,27 @@
  */
 
 import {SECRET_STORE_FILE} from './env-file.js';
-import {FLOW_FILE_EXTENSION, FLOWS_DIR} from './flow-model.js';
+import type {ExecutionResult} from './flow-executor.js';
+import type {Flow} from './flow-model.js';
+import {countActions, FLOW_FILE_EXTENSION, FLOWS_DIR} from './flow-model.js';
 import type {FlowSummary} from './flow-store.js';
+import type {ValidationResult} from './flow-validator.js';
+
+/**
+ * Semantic status glyphs prefixing result lines. These MUST match the
+ * vocabulary the host TUI paints by colour (termness `SEMANTIC_STATUS_GLYPHS`
+ * / `SEMANTIC_STATUS_COLOR`): a body line beginning with one of these glyphs is
+ * coloured success/error/dim/accent there. This is the wire contract that lets
+ * the model AND the human get per-step colour feedback without the fork
+ * emitting ANSI (the host strips it). Keep the code points in sync with that
+ * table; the flow-messaging test pins them.
+ */
+export const FLOW_GLYPHS = {
+  success: '\u2713', // ok, passed, saved-ok
+  error: '\u2717', // failed
+  skipped: '\u2298', // not run (stopped before this step)
+  info: '\u2139', // neutral note (e.g. "saved to <file>")
+} as const;
 
 /**
  * Single source of truth for every model-facing string about flows.
@@ -100,19 +119,136 @@ export function firstInteractionNotice(flows: FlowSummary[]): string {
     `When a ${FLOW_FILE_EXTENSION} file is created: ${commitGuidance()}`,
   ];
   if (flows.length > 0) {
-    lines.push(
-      '',
-      `Existing flows in this project (prefer reusing one): ${flows
-        .map(f => `${f.name} (${f.description || 'no description'})`)
-        .join('; ')}.`,
-    );
+    lines.push('', existingFlowsSummary(flows));
   } else {
     lines.push('', 'No saved flows yet in this project.');
   }
   return lines.join('\n');
 }
 
+/** Auto-saved drafts share a boilerplate name prefix. */
+const AUTO_FLOW_PREFIX = 'auto-';
+const MAX_LISTED_NAMED_FLOWS = 12;
+
+/**
+ * Compact one-line inventory of a project's flows for the onboarding notice.
+ * NAMED flows (the ones worth reusing) are shown with their descriptions;
+ * the auto-saved `auto-*` drafts all carry the same boilerplate description,
+ * so they are collapsed to a single count instead of repeating that text once
+ * per draft (the spam the raw list produced). Keeps the notice scannable.
+ */
+function existingFlowsSummary(flows: FlowSummary[]): string {
+  const named = flows.filter(f => !f.name.startsWith(AUTO_FLOW_PREFIX));
+  const autos = flows.length - named.length;
+  const parts: string[] = [];
+  if (named.length > 0) {
+    const shown = named
+      .slice(0, MAX_LISTED_NAMED_FLOWS)
+      .map(f => `${f.name} (${f.description || 'no description'})`)
+      .join('; ');
+    const overflow =
+      named.length > MAX_LISTED_NAMED_FLOWS
+        ? ` (+${named.length - MAX_LISTED_NAMED_FLOWS} more)`
+        : '';
+    parts.push(`Named flows (prefer reusing one): ${shown}${overflow}.`);
+  }
+  if (autos > 0) {
+    parts.push(
+      `${autos} unnamed auto-saved draft(s) also exist; run \`flow\` op=list to ` +
+        'see them, or op=save to give a useful one a real name.',
+    );
+  }
+  return parts.join('\n');
+}
+
 /** Description of an auto-saved flow, embedded in the saved file itself. */
 export function autoSaveDescription(reason: string): string {
   return `Auto-saved reusable journey (${reason}). Commit this file; rename/refine with flow op=save.`;
+}
+
+/** One-line summary of a flow (name + step/action counts). */
+export function flowSummaryLine(flow: Flow): string {
+  return `${flow.name}: ${flow.steps.length} step(s), ${countActions(flow)} action(s)`;
+}
+
+/**
+ * `op=list` result. Each flow is an `info`-glyph row so the host paints the
+ * list in the neutral accent tone and the model scans names quickly.
+ */
+export function listResult(flows: FlowSummary[]): string {
+  if (flows.length === 0) {
+    return 'No saved flows yet. Actions are being recorded; use op=save to persist one.';
+  }
+  const lines = flows.map(
+    f =>
+      `${FLOW_GLYPHS.info} ${f.name} — ${f.description || 'no description'} ` +
+      `(${f.steps} step(s), ${f.actions} action(s)` +
+      `${f.env.length ? `, env: ${f.env.join(', ')}` : ''})`,
+  );
+  return `Saved flows:\n${lines.join('\n')}`;
+}
+
+/**
+ * `op=save` result. Leads with a success glyph so the save reads as a distinct,
+ * positive event (green in the host), not undifferentiated grey output.
+ */
+export function saveResult(
+  name: string,
+  file: string,
+  flow: Flow,
+  validation: ValidationResult,
+): string {
+  const warnings = validation.issues
+    .filter(i => i.severity === 'warning')
+    .map(i => `${FLOW_GLYPHS.info} warning: ${i.message}`);
+  return [
+    `${FLOW_GLYPHS.success} Saved flow "${name}" to ${file}.`,
+    `${FLOW_GLYPHS.info} ${flowSummaryLine(flow)}`,
+    ...warnings,
+    commitGuidance(name),
+  ].join('\n');
+}
+
+/** `op=validate` result: one success/error headline plus per-issue rows. */
+export function validateResult(name: string, result: ValidationResult): string {
+  const head = result.valid
+    ? `${FLOW_GLYPHS.success} Validation of "${name}": valid`
+    : `${FLOW_GLYPHS.error} Validation of "${name}": INVALID`;
+  const lines = result.issues.map(
+    i =>
+      `${i.severity === 'error' ? FLOW_GLYPHS.error : FLOW_GLYPHS.info} ` +
+      `[${i.severity}] ${i.message}`,
+  );
+  return [
+    head,
+    ...(lines.length ? lines : [`${FLOW_GLYPHS.success} No issues.`]),
+  ].join('\n');
+}
+
+/**
+ * `op=exec` result: a per-step ledger with a status glyph on every step, so
+ * the host colours each line by outcome (green passed / red failed / grey the
+ * steps that never ran after a failure) and the human sees the journey replay
+ * step by step at a glance.
+ */
+export function execResult(name: string, result: ExecutionResult): string {
+  // Steps after a failure are simply absent from result.steps.
+  const stepLines = result.steps.map(s =>
+    s.status === 'passed'
+      ? `${FLOW_GLYPHS.success} ${s.name}: passed (${s.actionsRun} action(s))`
+      : `${FLOW_GLYPHS.error} ${s.name}: FAILED at ${s.failedAction} — ${s.error}`,
+  );
+  const headGlyph =
+    result.status === 'failed' ? FLOW_GLYPHS.error : FLOW_GLYPHS.success;
+  const footer =
+    result.status === 'failed'
+      ? `${FLOW_GLYPHS.error} Step "${result.steps[result.failedStepIndex]?.name}" failed. ` +
+        'Use the browser tools to inspect and fix, then update the flow with ' +
+        'op=save or by editing the .cdp.ts file.'
+      : `${FLOW_GLYPHS.success} All steps passed.`;
+  return [
+    `${headGlyph} Replay of "${name}": ${result.status}`,
+    ...stepLines,
+    footer,
+  ].join('\n');
 }

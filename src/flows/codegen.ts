@@ -42,6 +42,15 @@ export function generateFlowSource(flow: Flow): string {
     lines.push(
       `    await ctx.step(${JSON.stringify(step.name)}${desc}, async () => {`,
     );
+    if (step.precondition) {
+      const t =
+        step.precondition.timeoutMs !== undefined
+          ? `, ${step.precondition.timeoutMs}`
+          : '';
+      lines.push(
+        `      await ctx.require(${JSON.stringify(step.precondition.selector)}${t});`,
+      );
+    }
     for (const action of step.actions) {
       lines.push(`      await ctx.run(${renderAction(action)});`);
     }

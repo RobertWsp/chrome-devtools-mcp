@@ -69,14 +69,48 @@ function originOf(action: FlowAction): string | undefined {
   }
 }
 
-function slugFromOrigin(origin: string | undefined): string {
-  const base = (origin ?? 'journey')
+/**
+ * Builds a human-meaningful slug from the FIRST navigation of the journey:
+ * host + first meaningful path segment (e.g. `app-example-com-login`), so an
+ * auto-saved draft reads as what it did rather than an opaque `journey`. Falls
+ * back to `journey` only when no URL is available.
+ */
+function slugFromFirstNav(buffer: readonly FlowAction[]): string {
+  for (const action of buffer) {
+    if (action.tool !== 'navigate_page' && action.tool !== 'new_page') {
+      continue;
+    }
+    const url = action.params.url;
+    if (typeof url !== 'string') {
+      continue;
+    }
+    try {
+      const u = new URL(url);
+      const host = u.host.replace(/^www\./, '');
+      // First two non-empty path segments give the page context (login, etc.).
+      const pathPart = u.pathname
+        .split('/')
+        .filter(Boolean)
+        .slice(0, 2)
+        .join('-');
+      const slug = sanitizeSlug([host, pathPart].filter(Boolean).join('-'));
+      if (slug) {
+        return slug;
+      }
+    } catch {
+      // non-URL (data:, about:) -> keep scanning
+    }
+  }
+  return 'journey';
+}
+
+function sanitizeSlug(value: string): string {
+  return value
     .replace(/^https?:/, '')
     .replace(/[^a-zA-Z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .toLowerCase()
-    .slice(0, 32);
-  return base || 'journey';
+    .slice(0, 40);
 }
 
 export class AutoSaver {
@@ -109,7 +143,7 @@ export class AutoSaver {
         save: true,
         boundary: 'size',
         retainAfterSave: 0,
-        suggestedName: this.#name(originOf(buffer[0])),
+        suggestedName: this.#name(buffer),
         reason: `reached ${this.#maxActions} actions`,
       };
     }
@@ -132,7 +166,7 @@ export class AutoSaver {
           boundary: 'origin',
           // Keep the navigation that starts the next journey.
           retainAfterSave: 1,
-          suggestedName: this.#name([...priorOrigins][0]),
+          suggestedName: this.#name(buffer.slice(0, buffer.length - 1)),
           reason: `navigated to a new origin (${lastOrigin})`,
         };
       }
@@ -141,7 +175,14 @@ export class AutoSaver {
     return {save: false};
   }
 
-  #name(origin: string | undefined): string {
-    return `auto-${slugFromOrigin(origin)}-${this.#now()}`;
+  #name(buffer: readonly FlowAction[]): string {
+    // Compact, sortable date-time suffix (YYYYMMDD-HHMMSS) instead of an opaque
+    // epoch-ms, so a list of auto-* drafts reads chronologically at a glance.
+    const d = new Date(this.#now());
+    const p = (n: number) => `${n}`.padStart(2, '0');
+    const stamp =
+      `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}` +
+      `-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+    return `auto-${slugFromFirstNav(buffer)}-${stamp}`;
   }
 }

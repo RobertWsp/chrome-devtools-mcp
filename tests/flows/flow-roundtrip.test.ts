@@ -78,6 +78,36 @@ describe('flow codegen <-> parser roundtrip', () => {
     assert.deepStrictEqual(parsed.steps, flow.steps);
   });
 
+  it('round-trips a step precondition via ctx.require', () => {
+    const flow: Flow = {
+      name: 'guarded',
+      description: '',
+      env: [],
+      steps: [
+        {
+          name: 'open',
+          actions: [{tool: 'navigate_page', params: {url: 'https://app.test'}}],
+        },
+        {
+          name: 'fill-form',
+          precondition: {selector: '#login-form', timeoutMs: 8000},
+          actions: [{tool: 'fill', params: {uid: '1', value: 'x'}}],
+        },
+        {
+          name: 'submit',
+          precondition: {selector: 'button[type=submit]'},
+          actions: [{tool: 'click', params: {uid: '2'}}],
+        },
+      ],
+    };
+    const source = generateFlowSource(flow);
+    // Precondition emits a readable ctx.require as the first step statement.
+    assert.match(source, /ctx\.require\("#login-form", 8000\)/);
+    assert.match(source, /ctx\.require\("button\[type=submit\]"\)/);
+    const parsed = parseFlowSource(source);
+    assert.deepStrictEqual(parsed.steps, flow.steps);
+  });
+
   it('throws on a source without defineFlow', () => {
     assert.throws(
       () => parseFlowSource('export const x = 1;'),

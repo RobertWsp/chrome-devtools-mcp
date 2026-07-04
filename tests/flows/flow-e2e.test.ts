@@ -135,7 +135,7 @@ describe('flow e2e', () => {
           name: 'flow',
           arguments: {op: 'list'},
         });
-        assert.match(textOf(listed), /\*\*demo\*\*/);
+        assert.match(textOf(listed), /\u2139 demo /);
 
         // Validate passes.
         const validated = await client.callTool({

@@ -492,7 +492,7 @@ describe('flow scenarios e2e', () => {
 
       const listed = await call(client, 'flow', {op: 'list'});
       // Exactly one "ver" entry, reflecting the second save (2 steps).
-      const occurrences = listed.match(/\*\*ver\*\*/g) ?? [];
+      const occurrences = listed.match(/^\u2139 ver /gm) ?? [];
       assert.strictEqual(occurrences.length, 1);
       assert.match(listed, /2 step\(s\)/);
       const source = await readFlow('ver');
@@ -574,7 +574,7 @@ describe('flow scenarios e2e', () => {
           op: 'list',
           sessionId: sessionB,
         });
-        assert.match(listed, /\*\*routed\*\*/);
+        assert.match(listed, /\u2139 routed /);
       });
     } finally {
       await fs.rm(otherRoot, {recursive: true, force: true});
@@ -603,7 +603,7 @@ describe('flow scenarios e2e', () => {
       await new Promise(r => setTimeout(r, 400));
 
       const listed = await call(client, 'flow', {op: 'list', sessionId});
-      assert.match(listed, /\*\*auto-/);
+      assert.match(listed, /\u2139 auto-/);
 
       // The auto-saved file exists under a COMMITTABLE .cdpflows dir...
       const flowDir = path.join(projectRoot, '.cdpflows');
@@ -627,6 +627,89 @@ describe('flow scenarios e2e', () => {
       assert.match(nextTurn, /Flows: journey auto-saved/);
       assert.match(nextTurn, /MUST be committed/);
       assert.match(nextTurn, /git add \.cdpflows\//);
+    });
+  });
+
+  // --- Scenario: step precondition + step-range control ------------------
+  it('enforces a step precondition and honors start/stop ranges', async () => {
+    await withClient(async client => {
+      const sessionId = await createSession(client);
+      // A flow whose second step assumes an element (#go) is present.
+      const steps = JSON.stringify([
+        {
+          name: 'open',
+          actions: [
+            {
+              tool: 'navigate_page',
+              params: {
+                url: 'data:text/html,<h1>Home</h1><button id="go">Go</button>',
+              },
+            },
+          ],
+        },
+        {
+          name: 'act',
+          precondition: {selector: '#go', timeoutMs: 4000},
+          actions: [
+            {
+              tool: 'navigate_page',
+              params: {url: 'data:text/html,<h1>Done</h1>'},
+            },
+          ],
+        },
+      ]);
+      const saved = await call(client, 'flow', {
+        op: 'save',
+        name: 'guarded',
+        sessionId,
+        steps,
+      });
+      // The precondition round-trips into the generated file.
+      assert.match(saved, /Saved flow "guarded"/);
+      const source = await readFlow('guarded');
+      assert.match(source, /ctx\.require\("#go", 4000\)/);
+
+      // Full replay passes (step 1 establishes the page, step 2's guard holds).
+      const full = await call(client, 'flow', {
+        op: 'exec',
+        name: 'guarded',
+        sessionId: await createSession(client),
+      });
+      assert.match(full, /Replay of "guarded": passed/);
+      assert.match(full, /open: passed/);
+      assert.match(full, /act: passed/);
+
+      // startAtStep=act on a BLANK page: the #go precondition is unmet, so the
+      // step FAILS (never silently skipped).
+      const blank = await createSession(client);
+      const resumed = await call(client, 'flow', {
+        op: 'exec',
+        name: 'guarded',
+        sessionId: blank,
+        startAtStep: 'act',
+      });
+      assert.match(resumed, /Replay of "guarded": failed/);
+      assert.match(resumed, /act: FAILED at precondition/);
+      assert.match(resumed, /precondition not met/);
+
+      // stopAtStep=open replays only the first step (range trimming).
+      const partial = await call(client, 'flow', {
+        op: 'exec',
+        name: 'guarded',
+        sessionId: await createSession(client),
+        stopAtStep: 'open',
+      });
+      assert.match(partial, /open: passed/);
+      assert.doesNotMatch(partial, /act: passed/);
+
+      // An unknown step name is a hard error, never a silent full run.
+      const bad = await call(client, 'flow', {
+        op: 'exec',
+        name: 'guarded',
+        sessionId: await createSession(client),
+        startAtStep: 'nonexistent',
+      });
+      assert.match(bad, /is not a step of flow/);
     });
   });
 });

@@ -102,7 +102,7 @@ describe('FlowService (integration)', () => {
     await svc.saveRecording('s', 'login', 'logs in');
     const notice = await svc.consumeFirstInteractionNotice('s');
     assert.ok(notice);
-    assert.match(notice!, /Existing flows in this project/);
+    assert.match(notice!, /Named flows \(prefer reusing one\)/);
     assert.match(notice!, /login \(logs in\)/);
   });
 

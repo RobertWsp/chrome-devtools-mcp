@@ -23,7 +23,6 @@ import {
   firstInteractionNotice,
 } from './flow-messaging.js';
 import type {Flow} from './flow-model.js';
-import {countActions} from './flow-model.js';
 import {FlowStore, type FlowSummary} from './flow-store.js';
 import type {ValidationResult} from './flow-validator.js';
 import {validateFlow, validateFlowSource} from './flow-validator.js';
@@ -369,7 +368,11 @@ export class FlowService {
   async exec(
     name: string,
     context: Context,
-    options: {stopAtStep?: string; sessionId?: string} = {},
+    options: {
+      startAtStep?: string;
+      stopAtStep?: string;
+      sessionId?: string;
+    } = {},
   ): Promise<ExecutionResult> {
     const flow = await this.#storeFor(options.sessionId).load(name);
     // Read the project's .env once per run (not per env-ref) so a flow with
@@ -385,12 +388,9 @@ export class FlowService {
       return fileEnv?.get(envName) ?? process.env[envName];
     };
     return this.#executor.run(flow, context, {
+      startAtStep: options.startAtStep,
       stopAtStep: options.stopAtStep,
       getEnv,
     });
-  }
-
-  summarize(flow: Flow): string {
-    return `${flow.name}: ${flow.steps.length} step(s), ${countActions(flow)} action(s)`;
   }
 }

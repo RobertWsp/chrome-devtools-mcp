@@ -41,7 +41,8 @@ describe('AutoSaver', () => {
     assert.strictEqual(d.boundary, 'size');
     assert.strictEqual(d.retainAfterSave, 0);
     assert.match(d.reason ?? '', /reached 4 actions/);
-    assert.match(d.suggestedName ?? '', /^auto-.*-111$/);
+    // Meaningful slug from the first nav (host) + a sortable date-time stamp.
+    assert.match(d.suggestedName ?? '', /^auto-a-test-\d{8}-\d{6}$/);
   });
 
   it('saves the prior journey when navigating to a new origin', () => {
@@ -57,7 +58,8 @@ describe('AutoSaver', () => {
     assert.strictEqual(d.boundary, 'origin');
     assert.strictEqual(d.retainAfterSave, 1);
     assert.match(d.reason ?? '', /new origin \(other\.test\)/);
-    assert.match(d.suggestedName ?? '', /shop-test/);
+    // Slug carries host + first path segment: shop-test-login.
+    assert.match(d.suggestedName ?? '', /^auto-shop-test-login-\d{8}-\d{6}$/);
   });
 
   it('does not fire on a same-origin navigation', () => {
