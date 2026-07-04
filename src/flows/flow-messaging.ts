@@ -83,22 +83,21 @@ export function autoSaveNotice(
  */
 export function firstInteractionNotice(flows: FlowSummary[]): string {
   const lines = [
-    'Flow recording is active for this session. Reusable browser journeys ' +
-      `(e.g. login, setup) are stored as ${FLOW_FILE_EXTENSION} files under ` +
-      `${FLOWS_DIR}/ and can be replayed instead of re-deriving every step ` +
-      '(saving tokens).',
+    'Flow recording is active and PASSIVE: your browser actions are recorded ' +
+      'automatically in the background. Just do your browsing normally with the ' +
+      'browser tools — you do NOT need to call the `flow` tool during ordinary ' +
+      'navigation, and you should not interrupt a task to manage flows.',
     '',
-    'How to work with flows:',
-    '1. BEFORE building a multi-step journey, check for an existing one: ' +
-      'call `flow` op=list.',
-    '2. If a matching flow exists, replay it with `flow` op=exec name=<name> ' +
-      '(it stops at the first failing step and tells you how to repair it).',
-    '3. Only if none fits, perform the journey with the browser tools, then ' +
-      'save it: `flow` op=draft to read the recorded actions, regroup them ' +
-      'into named steps, and `flow` op=save name=<name> with the steps JSON. ' +
-      'Completed journeys are also auto-saved as `auto-*` files you can ' +
-      'rename/refine.',
-    `4. ${commitGuidance()}`,
+    'Only reach for the `flow` tool in these specific cases:',
+    '1. You are about to REPEAT a known multi-step journey (e.g. a login you ' +
+      'have done before): call `flow` op=list once to see if a saved flow ' +
+      'exists, and if so replay it with `flow` op=exec name=<name> instead of ' +
+      're-deriving every step (saving tokens).',
+    '2. You just FINISHED a reusable multi-step journey worth keeping: save it ' +
+      'with `flow` op=draft then `flow` op=save. This is optional — completed ' +
+      'journeys are also auto-saved as `auto-*` files you can refine later.',
+    '',
+    `When a ${FLOW_FILE_EXTENSION} file is created: ${commitGuidance()}`,
   ];
   if (flows.length > 0) {
     lines.push(

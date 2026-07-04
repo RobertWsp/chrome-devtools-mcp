@@ -72,8 +72,17 @@ describe('flow-messaging (single source of truth for model copy)', () => {
     assert.match(notice, /flow` op=exec/);
     assert.match(notice, /Existing flows in this project/);
     assert.match(notice, /login \(logs in\)/);
-    // Step 4 embeds the shared commit guidance verbatim (no divergence).
+    // Embeds the shared commit guidance verbatim (no divergence).
     assert.ok(notice.includes(commitGuidance()));
+  });
+
+  it('firstInteractionNotice frames recording as passive (no mid-task nudging)', () => {
+    // Regression: an imperative "call op=list BEFORE building a journey" made
+    // the model call flow tools too frequently during ordinary navigation.
+    const notice = firstInteractionNotice([]);
+    assert.match(notice, /PASSIVE/);
+    assert.match(notice, /do NOT need to call the `flow` tool during ordinary/);
+    assert.doesNotMatch(notice, /BEFORE building a multi-step journey/);
   });
 
   it('firstInteractionNotice states when there are no flows yet', () => {

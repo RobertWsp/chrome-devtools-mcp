@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import {FLOW_FILE_EXTENSION, FLOWS_DIR} from './flows/flow-model.js';
 import type {YargsOptions} from './third_party/index.js';
 import {yargs, hideBin} from './third_party/index.js';
 import {parseViewport} from './utils/viewport.js';
@@ -171,8 +172,7 @@ export const cliOptions = {
   experimentalFlows: {
     type: 'boolean',
     default: false,
-    describe:
-      'Enable the experimental flow recorder/replayer: records browser actions and exposes the `flow` tool to save/list/validate/replay reusable .cdp.ts flows under .cdpflows/.',
+    describe: `Enable the experimental flow recorder/replayer: records browser actions and exposes the \`flow\` tool to save/list/validate/replay reusable ${FLOW_FILE_EXTENSION} flows under ${FLOWS_DIR}/.`,
   },
   flowsProjectRoot: {
     type: 'string',

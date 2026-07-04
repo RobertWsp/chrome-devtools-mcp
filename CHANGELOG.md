@@ -4,6 +4,15 @@
 
 ### 🛠️ Fixes
 
+* flow recording is now framed as PASSIVE in the first-interaction teaching: it
+  tells the model its actions are recorded automatically and it does NOT need to
+  call the `flow` tool during ordinary navigation, only when about to REPEAT a
+  known multi-step journey (op=list/op=exec) or to persist a finished one. The
+  previous imperative ("call op=list BEFORE building a journey") made the model
+  invoke flow tools too frequently, interrupting the actual task.
+* remaining hardcoded flow path/filename literals in the CLI help and the `flow`
+  tool description now derive from the flow-model constants and the shared
+  secret-store name (SSoT), matching the flow-messaging module.
 * flow messaging is now single-sourced. All model-facing flow copy (the commit
   guidance, the auto-save notice, the first-interaction teaching, the notice
   section titles, and the auto-saved flow's own description) lives in one
