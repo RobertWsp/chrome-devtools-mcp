@@ -624,8 +624,8 @@ describe('flow scenarios e2e', () => {
         sessionId,
         url: 'data:text/html,<h1>after</h1>',
       });
-      assert.match(nextTurn, /Flow auto-save/);
-      assert.match(nextTurn, /ACTION: commit this file/);
+      assert.match(nextTurn, /Flows: journey auto-saved/);
+      assert.match(nextTurn, /MUST be committed/);
       assert.match(nextTurn, /git add \.cdpflows\//);
     });
   });

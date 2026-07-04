@@ -17,6 +17,11 @@ import {AutoSaver} from './auto-saver.js';
 import {persistSecrets, readEnvFile} from './env-file.js';
 import type {ExecutionResult} from './flow-executor.js';
 import {FlowExecutor} from './flow-executor.js';
+import {
+  autoSaveDescription,
+  autoSaveNotice,
+  firstInteractionNotice,
+} from './flow-messaging.js';
 import type {Flow} from './flow-model.js';
 import {countActions} from './flow-model.js';
 import {FlowStore, type FlowSummary} from './flow-store.js';
@@ -205,7 +210,7 @@ export class FlowService {
       }
       const draft: Flow = {
         name: decision.suggestedName,
-        description: `Auto-saved reusable journey (${decision.reason ?? 'boundary'}). Commit this file; rename/refine with flow op=save.`,
+        description: autoSaveDescription(decision.reason ?? 'boundary'),
         env: [],
         steps: [{name: 'journey', actions: journey}],
       };
@@ -227,18 +232,8 @@ export class FlowService {
     actions: number,
     file: string,
   ): void {
-    const rel = `.cdpflows/${name}.cdp.ts`;
-    const notice =
-      `A reusable browser flow "${name}" (${actions} action(s)) was auto-saved to ${file}. ` +
-      `ACTION: commit this file to the repository so the flow is reusable later. Run exactly: ` +
-      `git add ${rel} && git commit -m "add ${name} browser flow". This file BELONGS in version ` +
-      `control — it is project source, not a throwaway or isolated artifact. The only caveat is ` +
-      `scope: stage just this path (never git add -A) so you do not also commit the user's ` +
-      `unrelated work in progress. You may rename/refine it first with flow op=save and replay it ` +
-      `with flow op=exec. Secret values are never in this file; they live in a gitignored .env, so ` +
-      `committing it is safe.`;
     const list = this.#autoSaveNotices.get(sessionId) ?? [];
-    list.push(notice);
+    list.push(autoSaveNotice(name, actions, file));
     this.#autoSaveNotices.set(sessionId, list);
   }
 
@@ -272,39 +267,7 @@ export class FlowService {
       return undefined;
     }
     this.#taughtSessions.add(sessionId);
-
-    const flows = await this.list(sessionId);
-    const lines = [
-      'Flow recording is active for this session. Reusable browser journeys ' +
-        '(e.g. login, setup) are stored as `.cdp.ts` files under .cdpflows/ and ' +
-        'can be replayed instead of re-deriving every step (saving tokens).',
-      '',
-      'How to work with flows:',
-      '1. BEFORE building a multi-step journey, check for an existing one: ' +
-        'call `flow` op=list.',
-      '2. If a matching flow exists, replay it with `flow` op=exec name=<name> ' +
-        '(it stops at the first failing step and tells you how to repair it).',
-      '3. Only if none fits, perform the journey with the browser tools, then ' +
-        'save it: `flow` op=draft to read the recorded actions, regroup them ' +
-        'into named steps, and `flow` op=save name=<name> with the steps JSON. ' +
-        'Completed journeys are also auto-saved as `auto-*` files you can ' +
-        'rename/refine.',
-      '4. Flow files (.cdpflows/*.cdp.ts) are project source: COMMIT them to ' +
-        'the repository so they are reusable later. Stage the specific file ' +
-        '(git add .cdpflows/<name>.cdp.ts), never git add -A, so you do not ' +
-        "commit the user's unrelated work. Secrets stay in a gitignored .env.",
-    ];
-    if (flows.length > 0) {
-      lines.push(
-        '',
-        `Existing flows in this project (prefer reusing one): ${flows
-          .map(f => `${f.name} (${f.description || 'no description'})`)
-          .join('; ')}.`,
-      );
-    } else {
-      lines.push('', 'No saved flows yet in this project.');
-    }
-    return lines.join('\n');
+    return firstInteractionNotice(await this.list(sessionId));
   }
 
   /**

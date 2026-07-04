@@ -4,6 +4,14 @@
 
 ### 🛠️ Fixes
 
+* flow messaging is now single-sourced. All model-facing flow copy (the commit
+  guidance, the auto-save notice, the first-interaction teaching, the notice
+  section titles, and the auto-saved flow's own description) lives in one
+  `flow-messaging` module, with the `.cdpflows`/`.cdp.ts`/`.env` literals derived
+  from the flow-model constants and the shared secret-store name rather than
+  hardcoded in prose. This removes the triplicated commit guidance whose
+  divergence previously let the model conclude it should not commit a flow, and
+  keeps `FlowService` focused on orchestration (the copy is delegated).
 * flow commit guidance: the model was concluding it should NOT commit an auto-saved flow ("draft / isolated artifact"), the opposite of the intent. The auto-save notice and the first-interaction teaching now LEAD with the affirmative action ("commit this file: git add .cdpflows/<name>.cdp.ts") and drop the "draft/isolated/do NOT" framing that read as a prohibition; the only caveat (stage the specific path, never git add -A) comes after. Flow files are framed as project source that belongs in version control.
 * flow onboarding: on a session's FIRST browser interaction the server now teaches the model, once, how flows work — to check for a reusable one with `flow` op=list, replay it with op=exec instead of re-deriving the journey, and only otherwise record + save a new one. The session's existing flows are listed inline so the model can act immediately. This replaces the create_session hint (single source of truth for flow onboarding, surfaced at the actionable moment when the project root is known).
 * flow safety: the recorder/auto-save no longer risks polluting an unrelated commit. `.cdpflows/` is intentionally committable (so flows are reusable across runs), but a flow's secret store `.env` is now guaranteed to be gitignored on every save (not only when a secret is extracted). When a journey is auto-saved, the server surfaces a one-shot notice to the model explaining the draft was created, why, and that its `.cdp.ts` file should be committed deliberately (on its own) rather than swept into an in-progress commit — so an agent never silently commits WIP artifacts.

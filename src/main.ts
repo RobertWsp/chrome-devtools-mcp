@@ -9,6 +9,7 @@ import './polyfill.js';
 import process from 'node:process';
 
 import {parseArguments} from './cli.js';
+import {NOTICE_TITLES} from './flows/flow-messaging.js';
 import {FlowController, type FlowOpParams} from './flows/FlowController.js';
 import {FlowService} from './flows/FlowService.js';
 import {IdleReaper} from './IdleReaper.js';
@@ -196,7 +197,7 @@ async function appendFirstInteractionNotice(
 ): Promise<void> {
   const notice = await flowService?.consumeFirstInteractionNotice(sessionId);
   if (notice) {
-    appendNoticeBlock(content, 'Flows: how to reuse and save journeys', notice);
+    appendNoticeBlock(content, NOTICE_TITLES.firstInteraction, notice);
   }
 }
 
@@ -213,7 +214,7 @@ function appendAutoSaveNotices(
   if (notices.length === 0) {
     return;
   }
-  appendNoticeBlock(content, 'Flow auto-save', notices.join('\n'));
+  appendNoticeBlock(content, NOTICE_TITLES.autoSave, notices.join('\n'));
 }
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;

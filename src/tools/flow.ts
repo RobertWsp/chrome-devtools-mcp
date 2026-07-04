@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import {FLOW_FILE_EXTENSION, FLOWS_DIR} from '../flows/flow-model.js';
 import {zod} from '../third_party/index.js';
 
 import {ToolCategory} from './categories.js';
@@ -23,7 +24,7 @@ export const flow = defineTool({
   name: 'flow',
   description: [
     'Record, list, inspect, validate and replay reusable browser flows.',
-    'Flows are saved as reviewable .cdp.ts files under .cdpflows/ and can be',
+    `Flows are saved as reviewable ${FLOW_FILE_EXTENSION} files under ${FLOWS_DIR}/ and can be`,
     'replayed to reproduce multi-step journeys (e.g. login) without re-deriving',
     'each tool call, saving tokens. Before building a new journey, call op=list',
     'to reuse an existing flow. Secrets are auto-extracted to .env.',

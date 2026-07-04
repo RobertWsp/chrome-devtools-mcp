@@ -10,7 +10,12 @@ import path from 'node:path';
 
 import type {ExtractedSecret} from './secret-scanner.js';
 
-const ENV_FILE = '.env';
+/**
+ * Single source of truth for the secret-store filename. Exported so messaging
+ * and the flow store reference the same name instead of hardcoding `.env`.
+ */
+export const SECRET_STORE_FILE = '.env';
+const ENV_FILE = SECRET_STORE_FILE;
 const ENV_EXAMPLE_FILE = '.env.example';
 const GITIGNORE_FILE = '.gitignore';
 

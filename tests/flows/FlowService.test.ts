@@ -228,8 +228,8 @@ describe('FlowService (integration)', () => {
     assert.strictEqual(notices.length, 1);
     assert.match(notices[0], /reusable browser flow/);
     assert.match(notices[0], /flow op=exec/);
-    // Leads with the affirmative commit action, not a negation.
-    assert.match(notices[0], /ACTION: commit this file/);
+    // Affirmative commit action from the shared guidance, then the caveat.
+    assert.match(notices[0], /MUST be committed/);
     assert.match(notices[0], /git add \.cdpflows\//);
     assert.match(notices[0], /never git add -A/);
     // Consumed exactly once.

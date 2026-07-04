@@ -109,7 +109,7 @@ describe('flow e2e', () => {
         assert.match(firstText, /flow` op=exec/);
         // The teaching must tell the model to COMMIT flow files (regression
         // guard: the model previously concluded it should NOT commit them).
-        assert.match(firstText, /COMMIT them/);
+        assert.match(firstText, /MUST be committed/);
         assert.match(firstText, /never git add -A/);
 
         // Save the recording.
