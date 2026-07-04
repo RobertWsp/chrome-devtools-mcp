@@ -6,6 +6,7 @@
 
 import {isElementTarget, TARGET_PARAM} from './element-target.js';
 import type {Flow, FlowAction, FlowStep} from './flow-model.js';
+import {hostOf, isNavigation, slugify} from './journey-actions.js';
 
 /**
  * Turns a flat recorded journey into a STRUCTURED draft flow with a general
@@ -25,8 +26,6 @@ import type {Flow, FlowAction, FlowStep} from './flow-model.js';
  *
  * Pure + deterministic: same input -> same output, trivially testable.
  */
-
-const NAV_TOOLS = new Set(['navigate_page', 'new_page']);
 
 /** Builds the structured steps for a recorded journey. */
 export function summarizeJourney(actions: readonly FlowAction[]): FlowStep[] {
@@ -64,7 +63,7 @@ export function buildAutoDraft(
 function segmentByNavigation(actions: readonly FlowAction[]): FlowAction[][] {
   const segments: FlowAction[][] = [];
   for (const action of actions) {
-    if (NAV_TOOLS.has(action.tool) || segments.length === 0) {
+    if (isNavigation(action) || segments.length === 0) {
       segments.push([action]);
     } else {
       segments[segments.length - 1].push(action);
@@ -76,17 +75,17 @@ function segmentByNavigation(actions: readonly FlowAction[]): FlowAction[][] {
 /** A short, file-safe step label derived from the segment's shape. */
 function stepName(segment: FlowAction[], index: number): string {
   const first = segment[0];
-  if (first && NAV_TOOLS.has(first.tool)) {
+  if (first && isNavigation(first)) {
     const host = hostOf(first);
     return host
-      ? slug(`open-${host}`)
+      ? slugify(`open-${host}`)
       : index === 0
         ? 'open'
         : `open-${index + 1}`;
   }
   // Non-nav segment: name after the dominant interaction verb.
   const verb = dominantVerb(segment);
-  return slug(verb) || `step-${index + 1}`;
+  return slugify(verb) || `step-${index + 1}`;
 }
 
 /** One-line human description of what the step does. */
@@ -105,7 +104,7 @@ function flowDescription(
   steps: FlowStep[],
   actions: readonly FlowAction[],
 ): string {
-  const entry = actions.find(a => NAV_TOOLS.has(a.tool));
+  const entry = actions.find(isNavigation);
   const host = entry ? hostOf(entry) : undefined;
   const phases = steps.map(s => s.name).join(' -> ');
   const where = host ? ` on ${host}` : '';
@@ -117,7 +116,7 @@ function flowDescription(
 
 /** Describes a single action in a few words using its element target. */
 function describeAction(action: FlowAction): string {
-  if (NAV_TOOLS.has(action.tool)) {
+  if (isNavigation(action)) {
     const host = hostOf(action);
     return host ? `go to ${host}` : 'navigate';
   }
@@ -170,26 +169,6 @@ function targetLabel(action: FlowAction): string | undefined {
     return `"${target.name}"`;
   }
   return undefined;
-}
-
-function hostOf(action: FlowAction): string | undefined {
-  const url = action.params.url;
-  if (typeof url !== 'string') {
-    return undefined;
-  }
-  try {
-    return new URL(url).host.replace(/^www\./, '') || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function slug(value: string): string {
-  return value
-    .replace(/[^a-zA-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .toLowerCase()
-    .slice(0, 40);
 }
 
 function capitalize(value: string): string {

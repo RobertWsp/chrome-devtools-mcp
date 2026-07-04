@@ -5,6 +5,7 @@
  */
 
 import type {FlowAction} from './flow-model.js';
+import {hostOf, navigationUrl, slugify} from './journey-actions.js';
 
 /**
  * Decides when a recorded buffer represents a completed "journey" worth
@@ -52,21 +53,9 @@ export interface AutoSaverOptions {
 const DEFAULT_MAX_ACTIONS = 12;
 const DEFAULT_MIN_ACTIONS = 2;
 
+/** Origin key for boundary detection: the host+scheme stub of a navigation. */
 function originOf(action: FlowAction): string | undefined {
-  if (action.tool !== 'navigate_page' && action.tool !== 'new_page') {
-    return undefined;
-  }
-  const url = action.params.url;
-  if (typeof url !== 'string') {
-    return undefined;
-  }
-  try {
-    const u = new URL(url);
-    // data: URLs have no host; use the scheme so distinct pages still separate.
-    return u.host || `${u.protocol}${u.pathname.slice(0, 24)}`;
-  } catch {
-    return undefined;
-  }
+  return hostOf(action);
 }
 
 /**
@@ -77,11 +66,8 @@ function originOf(action: FlowAction): string | undefined {
  */
 function slugFromFirstNav(buffer: readonly FlowAction[]): string {
   for (const action of buffer) {
-    if (action.tool !== 'navigate_page' && action.tool !== 'new_page') {
-      continue;
-    }
-    const url = action.params.url;
-    if (typeof url !== 'string') {
+    const url = navigationUrl(action);
+    if (url === undefined) {
       continue;
     }
     try {
@@ -93,7 +79,7 @@ function slugFromFirstNav(buffer: readonly FlowAction[]): string {
         .filter(Boolean)
         .slice(0, 2)
         .join('-');
-      const slug = sanitizeSlug([host, pathPart].filter(Boolean).join('-'));
+      const slug = slugify([host, pathPart].filter(Boolean).join('-'));
       if (slug) {
         return slug;
       }
@@ -102,15 +88,6 @@ function slugFromFirstNav(buffer: readonly FlowAction[]): string {
     }
   }
   return 'journey';
-}
-
-function sanitizeSlug(value: string): string {
-  return value
-    .replace(/^https?:/, '')
-    .replace(/[^a-zA-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .toLowerCase()
-    .slice(0, 40);
 }
 
 export class AutoSaver {

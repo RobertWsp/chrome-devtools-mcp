@@ -4,6 +4,11 @@
 
 ### 🛠️ Fixes
 
+* internal: the journey "vocabulary" (what counts as a navigation, host
+  extraction, and label->slug) is now a single `journey-actions` leaf module
+  instead of being duplicated across the auto-saver and the journey-summarizer.
+  The two copies had already drifted (one stripped `www.`, the other did not;
+  two different slug length caps), so they are consolidated to one SSoT.
 * flow replay is now RESILIENT to snapshot uid drift — the root cause of
   recorded flows failing with "No such element found in the snapshot". Snapshot
   uids (`<snapshotId>_<n>`) are ephemeral: the id namespace changes on every new
