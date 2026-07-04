@@ -14,6 +14,7 @@ import {
   UniverseManager,
   urlsEqual,
 } from './DevtoolsUtils.js';
+import {type ElementTarget, resolveTargetUid} from './flows/element-target.js';
 import type {ListenerMap, UncaughtError} from './PageCollector.js';
 import {NetworkCollector, ConsoleCollector} from './PageCollector.js';
 import {Locator} from './third_party/index.js';
@@ -645,6 +646,18 @@ export class McpContext implements Context {
 
   getAXNodeByUid(uid: string) {
     return this.#textSnapshot?.idToNode.get(uid);
+  }
+
+  /**
+   * Re-resolves a durable element target (role + accessible name) to a CONCRETE
+   * uid in the CURRENT snapshot, so a replayed flow action addresses the live
+   * element even though the recorded uid belongs to a stale snapshot namespace.
+   * Returns undefined when no confident match exists (caller then fails loudly
+   * rather than acting on the wrong element).
+   */
+  resolveUidByTarget(target: ElementTarget): string | undefined {
+    const nodes = this.#textSnapshot?.idToNode.values();
+    return nodes ? resolveTargetUid(target, nodes) : undefined;
   }
 
   async getElementByUid(uid: string): Promise<ElementHandle<Element>> {

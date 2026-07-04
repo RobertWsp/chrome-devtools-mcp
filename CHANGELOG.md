@@ -4,6 +4,25 @@
 
 ### 🛠️ Fixes
 
+* flow replay is now RESILIENT to snapshot uid drift — the root cause of
+  recorded flows failing with "No such element found in the snapshot". Snapshot
+  uids (`<snapshotId>_<n>`) are ephemeral: the id namespace changes on every new
+  snapshot, so a uid captured while recording is meaningless on replay. The
+  recorder now attaches a DURABLE element target (ARIA role + accessible name +
+  value hint) next to every uid param (`click`/`hover`/`fill`/`drag`/
+  `upload_file` and each `fill_form` element), and the executor re-resolves that
+  target to a FRESH uid in the current snapshot before acting, using a tiered
+  fail-safe strategy (exact role+name -> exact name -> role+partial name, with
+  value disambiguation; refuses to guess when several identical elements remain).
+  When a target no longer matches, the step FAILS with a clear "element ... was
+  not found" message instead of clicking the wrong element. New `element-target`
+  SSoT module; the whole thing is decoupled from McpContext via an injected AX
+  lookup at record time and a `resolveUidByTarget` Context method at replay.
+* auto-saved drafts are now SELF-DESCRIBING: a new deterministic
+  `journey-summarizer` segments the recorded journey at navigation boundaries
+  into named phases, gives the flow a general description (the phases + entry
+  origin) and each step a short description derived from its element targets — no
+  LLM call at save time. Replaces the opaque single `journey` block.
 * flow replay now reports a COMPLETE ledger. When a step fails, the steps after
   it are reported as `skipped` (⊘, never run) instead of being dropped from the
   result, so op=exec output shows the whole flow and exactly where it stopped.

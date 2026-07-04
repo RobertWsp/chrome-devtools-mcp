@@ -78,6 +78,45 @@ describe('action-normalizer', () => {
     });
     assert.deepStrictEqual(action, {tool: 'click', params: {uid: '1_2'}});
   });
+
+  it('enriches a uid param with a durable target from the AX node', () => {
+    const action = normalizeAction('click', {uid: '1_5'}, uid =>
+      uid === '1_5' ? {role: 'button', name: 'Sign in'} : undefined,
+    );
+    assert.strictEqual(action.params.uid, '1_5');
+    assert.deepStrictEqual(action.params.__target, {
+      role: 'button',
+      name: 'Sign in',
+    });
+  });
+
+  it('enriches each fill_form element with its own target', () => {
+    const nodes: Record<string, {role: string; name: string}> = {
+      a: {role: 'textbox', name: 'Email'},
+      b: {role: 'textbox', name: 'Password'},
+    };
+    const action = normalizeAction(
+      'fill_form',
+      {
+        elements: [
+          {uid: 'a', value: 'x'},
+          {uid: 'b', value: 'y'},
+        ],
+      },
+      uid => nodes[uid],
+    );
+    const els = action.params.elements as Array<Record<string, unknown>>;
+    assert.deepStrictEqual(els[0].__target, {role: 'textbox', name: 'Email'});
+    assert.deepStrictEqual(els[1].__target, {
+      role: 'textbox',
+      name: 'Password',
+    });
+  });
+
+  it('leaves params unchanged when no AX lookup is provided (back-compat)', () => {
+    const action = normalizeAction('click', {uid: '1_5'});
+    assert.deepStrictEqual(action.params, {uid: '1_5'});
+  });
 });
 
 describe('ActionRecorder', () => {

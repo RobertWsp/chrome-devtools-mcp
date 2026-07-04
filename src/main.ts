@@ -426,8 +426,12 @@ function registerBrowserTool(tool: ToolDefinition): void {
         // McpResponse owns the response text, including tab lifecycle notices.
         const {content} = await response.handle(tool.name, context);
         // Record the successful action for the flow recorder (filtered to
-        // mutating browser actions inside observe()).
-        flowService?.observe(sessionId, tool, params);
+        // mutating browser actions inside observe()). The AX-node lookup lets
+        // the recorder attach a DURABLE element target next to each ephemeral
+        // snapshot uid, so the flow re-resolves elements on replay.
+        flowService?.observe(sessionId, tool, params, uid =>
+          context.getAXNodeByUid(uid),
+        );
         // On the session's first interaction, teach the model how to use flows
         // and to check/reuse an existing one before deriving a new journey.
         await appendFirstInteractionNotice(sessionId, content);

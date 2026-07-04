@@ -715,6 +715,71 @@ describe('flow scenarios e2e', () => {
       assert.match(bad, /is not a step of flow/);
     });
   });
+
+  // --- Scenario: RESILIENT uid re-resolution (the recorded-uid drift bug) --
+  it('re-resolves recorded uids by element target on replay', async () => {
+    await withClient(async client => {
+      const sessionId = await createSession(client);
+      const form =
+        'data:text/html,<form>' +
+        '<input aria-label="Full name" id="name"/>' +
+        '<button onclick="document.title=document.getElementById(\'name\').value;return false;">Save</button>' +
+        '</form>';
+      await call(client, 'navigate_page', {sessionId, url: form});
+      const snap = await call(client, 'take_snapshot', {sessionId});
+      const inputUid = snap.match(/uid=(\S+)\s+textbox/)?.[1];
+      const buttonUid = snap.match(/uid=(\S+)\s+button/)?.[1];
+      assert.ok(inputUid && buttonUid, `no uids in snapshot:\n${snap}`);
+
+      // Record fill+click; the recorder attaches durable targets (role+name).
+      await call(client, 'fill', {sessionId, uid: inputUid, value: 'Ada'});
+      await call(client, 'click', {sessionId, uid: buttonUid});
+
+      // Save the RAW recording (op=draft-style single step). Crucially we do
+      // NOT add a take_snapshot step and do NOT rewrite uids: replay must
+      // re-resolve them from the captured targets against a fresh snapshot.
+      const draft = await call(client, 'flow', {op: 'draft', sessionId});
+      assert.match(draft, /__target/); // targets were captured
+      const actions = JSON.parse(
+        draft.match(/```json\n([\s\S]*?)\n```/)?.[1] ?? '[]',
+      );
+      const steps = JSON.stringify([
+        {
+          name: 'open',
+          actions: actions.filter(
+            (a: {tool: string}) => a.tool === 'navigate_page',
+          ),
+        },
+        {
+          name: 'fill-and-submit',
+          actions: actions.filter(
+            (a: {tool: string}) => a.tool !== 'navigate_page',
+          ),
+        },
+      ]);
+      await call(client, 'flow', {
+        op: 'save',
+        name: 'resilient',
+        sessionId,
+        steps,
+      });
+
+      // Replay on a FRESH session: the recorded uids belong to a stale
+      // snapshot namespace, but target re-resolution finds the live elements.
+      const replaySession = await createSession(client);
+      const replayed = await call(client, 'flow', {
+        op: 'exec',
+        name: 'resilient',
+        sessionId: replaySession,
+      });
+      assert.match(replayed, /Replay of "resilient": passed/);
+      const title = await call(client, 'evaluate_script', {
+        sessionId: replaySession,
+        function: '() => document.title',
+      });
+      assert.match(title, /Ada/);
+    });
+  });
 });
 
 async function fileExists(p: string): Promise<boolean> {

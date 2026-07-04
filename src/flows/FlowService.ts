@@ -12,20 +12,18 @@ import type {McpResponse} from '../McpResponse.js';
 import {Mutex} from '../Mutex.js';
 import type {Context, ToolDefinition} from '../tools/ToolDefinition.js';
 
+import type {AXNodeLookup} from './action-normalizer.js';
 import {ActionRecorder} from './action-recorder.js';
 import {AutoSaver} from './auto-saver.js';
 import {persistSecrets, readEnvFile} from './env-file.js';
 import type {ExecutionResult} from './flow-executor.js';
 import {FlowExecutor} from './flow-executor.js';
-import {
-  autoSaveDescription,
-  autoSaveNotice,
-  firstInteractionNotice,
-} from './flow-messaging.js';
+import {autoSaveNotice, firstInteractionNotice} from './flow-messaging.js';
 import type {Flow} from './flow-model.js';
 import {FlowStore, type FlowSummary} from './flow-store.js';
 import type {ValidationResult} from './flow-validator.js';
 import {validateFlow, validateFlowSource} from './flow-validator.js';
+import {buildAutoDraft} from './journey-summarizer.js';
 import {extractSecrets} from './secret-scanner.js';
 
 export interface FlowServiceOptions {
@@ -161,10 +159,11 @@ export class FlowService {
     sessionId: string,
     tool: ToolDefinition,
     params: Record<string, unknown>,
+    lookupAXNode?: AXNodeLookup,
   ): void {
     const recorder = this.recorderFor(sessionId);
     const before = recorder.size;
-    recorder.record(tool, params);
+    recorder.record(tool, params, lookupAXNode);
     // Only evaluate when the action was actually recorded (mutating browser
     // action); read-only tools don't advance a journey.
     if (this.#autoSaveEnabled && recorder.size > before) {
@@ -207,12 +206,10 @@ export class FlowService {
       if (journey.length === 0) {
         return;
       }
-      const draft: Flow = {
-        name: decision.suggestedName,
-        description: autoSaveDescription(decision.reason ?? 'boundary'),
-        env: [],
-        steps: [{name: 'journey', actions: journey}],
-      };
+      // Structure the flat journey into named, described phases (deterministic,
+      // no LLM) so the auto draft is self-describing: a general description +
+      // one short description per step.
+      const draft = buildAutoDraft(decision.suggestedName, journey);
       const {file} = await this.saveFlow(draft, sessionId);
       logger(
         `flow auto-saved "${draft.name}" (${journey.length} action(s)) for session ${sessionId}`,

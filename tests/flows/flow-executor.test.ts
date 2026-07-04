@@ -314,4 +314,92 @@ describe('FlowExecutor', () => {
     assert.strictEqual(result.status, 'passed');
     assert.strictEqual(calls.length, 1);
   });
+
+  it('re-resolves a durable target to a FRESH uid on replay', async () => {
+    const calls: Call[] = [];
+    const tool = makeTool('click', async params => {
+      calls.push({tool: 'click', params});
+    });
+    let snapshots = 0;
+    const ctx = {
+      createTextSnapshot: async () => {
+        snapshots++;
+      },
+      // The recorded uid was 1_5; the live snapshot exposes 42_9 for the same
+      // element (role+name). The executor must rewrite the uid.
+      resolveUidByTarget: (t: {role: string; name?: string}) =>
+        t.role === 'button' && t.name === 'Sign in' ? '42_9' : undefined,
+    } as unknown as Context;
+    const executor = new FlowExecutor({
+      getTool: () => tool,
+      getEnv: () => undefined,
+    });
+    const flow: Flow = {
+      name: 'f',
+      description: '',
+      env: [],
+      steps: [
+        {
+          name: 'submit',
+          actions: [
+            {
+              tool: 'click',
+              params: {uid: '1_5', __target: {role: 'button', name: 'Sign in'}},
+            },
+          ],
+        },
+      ],
+    };
+    const result = await executor.run(flow, ctx);
+    assert.strictEqual(result.status, 'passed');
+    assert.strictEqual(
+      snapshots,
+      1,
+      'a fresh snapshot is captured before resolving',
+    );
+    // The handler received the FRESH uid, and the target marker was stripped.
+    assert.strictEqual(calls[0].params.uid, '42_9');
+    assert.strictEqual(calls[0].params.__target, undefined);
+  });
+
+  it('FAILS the step when a durable target no longer matches the page', async () => {
+    const calls: Call[] = [];
+    const tool = makeTool('click', async params => {
+      calls.push({tool: 'click', params});
+    });
+    const ctx = {
+      createTextSnapshot: async () => {
+        /* no-op */
+      },
+      resolveUidByTarget: () => undefined, // element gone / structure changed
+    } as unknown as Context;
+    const executor = new FlowExecutor({
+      getTool: () => tool,
+      getEnv: () => undefined,
+    });
+    const flow: Flow = {
+      name: 'f',
+      description: '',
+      env: [],
+      steps: [
+        {
+          name: 'submit',
+          actions: [
+            {
+              tool: 'click',
+              params: {uid: '1_5', __target: {role: 'button', name: 'Gone'}},
+            },
+          ],
+        },
+      ],
+    };
+    const result = await executor.run(flow, ctx);
+    assert.strictEqual(result.status, 'failed');
+    assert.match(
+      result.steps[0].error ?? '',
+      /was not found on the current page/,
+    );
+    // The click never fired against a wrong element.
+    assert.strictEqual(calls.length, 0);
+  });
 });

@@ -10,7 +10,6 @@ import {describe, it} from 'node:test';
 import {SECRET_STORE_FILE} from '../../src/flows/env-file.js';
 import type {ExecutionResult} from '../../src/flows/flow-executor.js';
 import {
-  autoSaveDescription,
   autoSaveNotice,
   commitGuidance,
   execResult,
@@ -143,10 +142,5 @@ describe('flow-messaging (single source of truth for model copy)', () => {
 
   it('firstInteractionNotice states when there are no flows yet', () => {
     assert.match(firstInteractionNotice([]), /No saved flows yet/);
-  });
-
-  it('autoSaveDescription tells the model to commit the file', () => {
-    assert.match(autoSaveDescription('new origin'), /Commit this file/);
-    assert.match(autoSaveDescription('new origin'), /new origin/);
   });
 });

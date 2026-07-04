@@ -7,8 +7,25 @@
 import {McpResponse} from '../McpResponse.js';
 import type {Context, ToolDefinition} from '../tools/ToolDefinition.js';
 
+import {UID_PARAM_KEYS, targetKeyFor} from './action-normalizer.js';
+import {
+  type ElementTarget,
+  isElementTarget,
+  TARGET_PARAM,
+} from './element-target.js';
 import type {Flow, FlowAction, FlowStep} from './flow-model.js';
 import {isEnvRef} from './flow-model.js';
+
+/** Error when a durable target no longer matches any element on the page. */
+function targetMissError(target: ElementTarget): string {
+  const label = target.name ? `"${target.name}"` : `role=${target.role}`;
+  return (
+    `element ${label} (role=${target.role}) was not found on the current ` +
+    `page. The page structure changed since the flow was recorded; inspect it ` +
+    `with the browser tools and update the step (re-record it or edit the ` +
+    `.cdp.ts).`
+  );
+}
 
 export interface StepResult {
   name: string;
@@ -234,6 +251,9 @@ export class FlowExecutor {
       throw new Error(`Unknown tool "${action.tool}".`);
     }
     const params = this.#resolveParams(action.params, getEnv);
+    // Re-resolve durable element targets to FRESH snapshot uids so the action
+    // addresses the live element even though the recorded uid is stale.
+    await this.#resolveTargets(params, context);
     const timeout =
       typeof params.timeout === 'number'
         ? params.timeout
@@ -252,6 +272,82 @@ export class FlowExecutor {
       timeout,
       `${action.tool} timed out after ${timeout}ms`,
     );
+  }
+
+  /**
+   * Rewrites ephemeral snapshot uids from their DURABLE targets against the
+   * CURRENT page, and strips the target markers before the handler runs. This
+   * is what makes replay resilient: the recorded uid belongs to a stale
+   * snapshot namespace, so we re-resolve role+name to a fresh uid. Throws a
+   * clear error when a target no longer matches, so the step fails loudly
+   * instead of the tool erroring with an opaque "No such element".
+   *
+   * No-op when the params carry no targets (e.g. navigate_page) or the context
+   * cannot resolve them (unit tests with fake contexts) -- then the raw uid is
+   * used as-is, preserving the previous behavior.
+   */
+  async #resolveTargets(
+    params: Record<string, unknown>,
+    context: Context,
+  ): Promise<void> {
+    const hasTargets = Object.keys(params).some(
+      k => k === TARGET_PARAM || k.startsWith(`${TARGET_PARAM}_`),
+    );
+    const elements = params.elements;
+    const elementsHaveTargets =
+      Array.isArray(elements) &&
+      elements.some(
+        el =>
+          el &&
+          typeof el === 'object' &&
+          TARGET_PARAM in (el as Record<string, unknown>),
+      );
+    if (!hasTargets && !elementsHaveTargets) {
+      return;
+    }
+    // Fake context (unit tests) exposes neither method: keep the raw uids and
+    // just strip the markers so the handler receives clean params.
+    const canResolve = typeof context.resolveUidByTarget === 'function';
+    if (typeof context.createTextSnapshot === 'function') {
+      // Capture the live DOM so target resolution sees the current elements.
+      await context.createTextSnapshot();
+    }
+    const resolve = (target: ElementTarget): string | undefined =>
+      canResolve ? context.resolveUidByTarget(target) : undefined;
+
+    for (const uidKey of UID_PARAM_KEYS) {
+      const targetKey = targetKeyFor(uidKey);
+      const target = params[targetKey];
+      if (isElementTarget(target)) {
+        const fresh = resolve(target);
+        if (fresh) {
+          params[uidKey] = fresh;
+        } else if (canResolve) {
+          throw new Error(targetMissError(target));
+        }
+        delete params[targetKey];
+      }
+    }
+
+    if (Array.isArray(elements)) {
+      params.elements = elements.map(el => {
+        if (!el || typeof el !== 'object') {
+          return el;
+        }
+        const entry = {...(el as Record<string, unknown>)};
+        const target = entry[TARGET_PARAM];
+        if (isElementTarget(target)) {
+          const fresh = resolve(target);
+          if (fresh) {
+            entry.uid = fresh;
+          } else if (canResolve) {
+            throw new Error(targetMissError(target));
+          }
+          delete entry[TARGET_PARAM];
+        }
+        return entry;
+      });
+    }
   }
 
   /** Replaces env references with their resolved values. */

@@ -161,11 +161,6 @@ function existingFlowsSummary(flows: FlowSummary[]): string {
   return parts.join('\n');
 }
 
-/** Description of an auto-saved flow, embedded in the saved file itself. */
-export function autoSaveDescription(reason: string): string {
-  return `Auto-saved reusable journey (${reason}). Commit this file; rename/refine with flow op=save.`;
-}
-
 /** One-line summary of a flow (name + step/action counts). */
 export function flowSummaryLine(flow: Flow): string {
   return `${flow.name}: ${flow.steps.length} step(s), ${countActions(flow)} action(s)`;

@@ -6,7 +6,11 @@
 
 import type {ToolDefinition} from '../tools/ToolDefinition.js';
 
-import {isRecordable, normalizeAction} from './action-normalizer.js';
+import {
+  type AXNodeLookup,
+  isRecordable,
+  normalizeAction,
+} from './action-normalizer.js';
 import type {FlowAction} from './flow-model.js';
 
 /**
@@ -36,11 +40,15 @@ export class ActionRecorder {
    * Read-only and session/flow tools are ignored. Only call this after the
    * tool succeeded, so failed actions never pollute the draft.
    */
-  record(tool: ToolDefinition, params: Record<string, unknown>): void {
+  record(
+    tool: ToolDefinition,
+    params: Record<string, unknown>,
+    lookupAXNode?: AXNodeLookup,
+  ): void {
     if (!this.#enabled || !isRecordable(tool)) {
       return;
     }
-    this.#actions.push(normalizeAction(tool.name, params));
+    this.#actions.push(normalizeAction(tool.name, params, lookupAXNode));
   }
 
   /** Returns a copy of the buffered actions. */

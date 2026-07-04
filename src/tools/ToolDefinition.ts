@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type {ElementTarget} from '../flows/element-target.js';
 import type {TextSnapshotNode, GeolocationOptions} from '../McpContext.js';
 import {zod} from '../third_party/index.js';
 import type {
@@ -122,6 +123,11 @@ export type Context = Readonly<{
   selectPage(page: Page): void;
   getElementByUid(uid: string): Promise<ElementHandle<Element>>;
   getAXNodeByUid(uid: string): TextSnapshotNode | undefined;
+  resolveUidByTarget(target: ElementTarget): string | undefined;
+  createTextSnapshot(
+    verbose?: boolean,
+    devtoolsData?: DevToolsData | undefined,
+  ): Promise<void>;
   setNetworkConditions(conditions: string | null): void;
   setCpuThrottlingRate(rate: number): void;
   setGeolocation(geolocation: GeolocationOptions | null): void;
