@@ -5,7 +5,7 @@
  */
 
 import {SECRET_STORE_FILE} from './env-file.js';
-import type {ExecutionResult} from './flow-executor.js';
+import type {ExecutionResult, StepResult} from './flow-executor.js';
 import type {Flow} from './flow-model.js';
 import {countActions, FLOW_FILE_EXTENSION, FLOWS_DIR} from './flow-model.js';
 import type {FlowSummary} from './flow-store.js';
@@ -232,12 +232,7 @@ export function validateResult(name: string, result: ValidationResult): string {
  * step by step at a glance.
  */
 export function execResult(name: string, result: ExecutionResult): string {
-  // Steps after a failure are simply absent from result.steps.
-  const stepLines = result.steps.map(s =>
-    s.status === 'passed'
-      ? `${FLOW_GLYPHS.success} ${s.name}: passed (${s.actionsRun} action(s))`
-      : `${FLOW_GLYPHS.error} ${s.name}: FAILED at ${s.failedAction} — ${s.error}`,
-  );
+  const stepLines = result.steps.map(stepLedgerLine);
   const headGlyph =
     result.status === 'failed' ? FLOW_GLYPHS.error : FLOW_GLYPHS.success;
   const footer =
@@ -251,4 +246,20 @@ export function execResult(name: string, result: ExecutionResult): string {
     ...stepLines,
     footer,
   ].join('\n');
+}
+
+/**
+ * One ledger line for a replayed step, glyph chosen by outcome (SSoT mapping
+ * of step status -> glyph): passed ✓, failed ✗, skipped ⊘ (a step that never
+ * ran because an earlier one failed). The host tints the line by that glyph.
+ */
+function stepLedgerLine(step: StepResult): string {
+  switch (step.status) {
+    case 'passed':
+      return `${FLOW_GLYPHS.success} ${step.name}: passed (${step.actionsRun} action(s))`;
+    case 'failed':
+      return `${FLOW_GLYPHS.error} ${step.name}: FAILED at ${step.failedAction} — ${step.error}`;
+    case 'skipped':
+      return `${FLOW_GLYPHS.skipped} ${step.name}: skipped (an earlier step failed)`;
+  }
 }

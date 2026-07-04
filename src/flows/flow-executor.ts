@@ -12,7 +12,12 @@ import {isEnvRef} from './flow-model.js';
 
 export interface StepResult {
   name: string;
-  status: 'passed' | 'failed';
+  /**
+   * `passed`/`failed` for steps the runner reached; `skipped` for steps AFTER
+   * the first failure (never run, but reported so the ledger shows the whole
+   * flow and where it stopped).
+   */
+  status: 'passed' | 'failed' | 'skipped';
   actionsRun: number;
   error?: string;
   failedAction?: string;
@@ -90,11 +95,16 @@ export class FlowExecutor {
 
     for (let i = start; i <= stop; i++) {
       const step = flow.steps[i];
+      if (failedStepIndex !== -1) {
+        // A prior step failed: report the rest as skipped (never run) so the
+        // ledger shows the full flow and exactly where it stopped.
+        steps.push({name: step.name, status: 'skipped', actionsRun: 0});
+        continue;
+      }
       const result = await this.#runStep(step, context, getEnv);
       steps.push(result);
       if (result.status === 'failed') {
-        failedStepIndex = i;
-        break;
+        failedStepIndex = steps.length - 1;
       }
     }
 

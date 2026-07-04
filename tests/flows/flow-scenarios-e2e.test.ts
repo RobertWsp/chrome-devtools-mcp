@@ -331,7 +331,10 @@ describe('flow scenarios e2e', () => {
       assert.match(replayed, /Replay of "breaks": failed/);
       assert.match(replayed, /open: passed/);
       assert.match(replayed, /broken: FAILED/);
+      // The step after the failure is reported as skipped (full ledger), not
+      // silently dropped and not marked passed.
       assert.doesNotMatch(replayed, /never: passed/);
+      assert.match(replayed, /never: skipped/);
       assert.match(replayed, /Use the browser tools to inspect and fix/);
     });
   });

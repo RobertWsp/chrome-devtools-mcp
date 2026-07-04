@@ -8,10 +8,13 @@ import assert from 'node:assert';
 import {describe, it} from 'node:test';
 
 import {SECRET_STORE_FILE} from '../../src/flows/env-file.js';
+import type {ExecutionResult} from '../../src/flows/flow-executor.js';
 import {
   autoSaveDescription,
   autoSaveNotice,
   commitGuidance,
+  execResult,
+  FLOW_GLYPHS,
   firstInteractionNotice,
   flowRelPath,
 } from '../../src/flows/flow-messaging.js';
@@ -30,6 +33,42 @@ function summary(name: string, description = ''): FlowSummary {
 }
 
 describe('flow-messaging (single source of truth for model copy)', () => {
+  it('pins the FLOW_GLYPHS code points to the host status vocabulary', () => {
+    // WIRE CONTRACT: these MUST equal termness SEMANTIC_STATUS_GLYPHS so the
+    // host tints per-step output. The two live in separate repos and cannot
+    // import each other; both sides pin the exact code points so a change on
+    // one is caught here.
+    assert.strictEqual(FLOW_GLYPHS.success, '\u2713'); // check
+    assert.strictEqual(FLOW_GLYPHS.error, '\u2717'); // cross
+    assert.strictEqual(FLOW_GLYPHS.skipped, '\u2298'); // circled-slash (cancelled)
+    assert.strictEqual(FLOW_GLYPHS.info, '\u2139'); // info
+  });
+
+  it('execResult renders a full ledger: passed, failed, then skipped', () => {
+    const result: ExecutionResult = {
+      flow: 'f',
+      status: 'failed',
+      failedStepIndex: 1,
+      steps: [
+        {name: 'open', status: 'passed', actionsRun: 1},
+        {
+          name: 'login',
+          status: 'failed',
+          actionsRun: 0,
+          failedAction: 'fill',
+          error: 'no element',
+        },
+        {name: 'verify', status: 'skipped', actionsRun: 0},
+      ],
+    };
+    const out = execResult('f', result);
+    assert.match(out, new RegExp(`${FLOW_GLYPHS.success} open: passed`));
+    assert.match(out, new RegExp(`${FLOW_GLYPHS.error} login: FAILED`));
+    // The skipped step is shown (not silently dropped) with the ⊘ glyph.
+    assert.match(out, new RegExp(`${FLOW_GLYPHS.skipped} verify: skipped`));
+    assert.match(out, new RegExp(`${FLOW_GLYPHS.error} Step "login" failed`));
+  });
+
   it('derives the flow path from the flow-model constants', () => {
     assert.strictEqual(
       flowRelPath('login'),

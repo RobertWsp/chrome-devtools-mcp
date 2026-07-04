@@ -81,10 +81,15 @@ describe('FlowExecutor', () => {
     const result = await executor.run(flow, context);
     assert.strictEqual(result.status, 'failed');
     assert.strictEqual(result.failedStepIndex, 1);
-    assert.strictEqual(result.steps.length, 2);
     assert.strictEqual(result.steps[1].status, 'failed');
     assert.strictEqual(result.steps[1].failedAction, 'click');
     assert.match(result.steps[1].error ?? '', /element not found/);
+    // The full ledger is reported: the step AFTER the failure is 'skipped'
+    // (never run) so the reader sees the whole flow and where it stopped.
+    assert.strictEqual(result.steps.length, 3);
+    assert.strictEqual(result.steps[2].status, 'skipped');
+    assert.strictEqual(result.steps[2].name, 'c');
+    assert.strictEqual(result.steps[2].actionsRun, 0);
   });
 
   it('resolves env refs from the provided getEnv', async () => {

@@ -4,6 +4,13 @@
 
 ### 🛠️ Fixes
 
+* flow replay now reports a COMPLETE ledger. When a step fails, the steps after
+  it are reported as `skipped` (⊘, never run) instead of being dropped from the
+  result, so op=exec output shows the whole flow and exactly where it stopped.
+  This also makes the previously-dead `skipped` glyph load-bearing, and the
+  step-line rendering is a single status->glyph switch (SSoT). The `FLOW_GLYPHS`
+  code points are now pinned by a test on BOTH repos (they are the wire contract
+  the host colours by and cannot import across the repo boundary).
 * per-step flow feedback: `flow` op=exec/save/list/validate results now lead each
   line with a semantic status glyph (✓ passed / ✗ failed / ℹ note) so the host TUI
   paints the replay ledger and the save confirmation by outcome (green success,
