@@ -4,6 +4,17 @@
 
 ### 🛠️ Fixes
 
+* `take_screenshot` no longer produces images that downstream vision APIs
+  reject with "Could not process image". On HiDPI displays the browser's
+  `deviceScaleFactor` (~2) doubles the pixel dimensions of a capture, so a
+  full-page screenshot of a long page easily exceeds the 8000px-per-edge hard
+  limit even though the encoded bytes stay small. The inline-vs-file decision
+  previously looked only at byte length; it now also checks the pixel
+  dimensions (new `src/utils/image.ts` SSoT: `canInlineImage` +
+  dependency-free `readImageSize` for PNG/JPEG/WebP) and spills oversized
+  captures to a temp file. Covered by unit tests and a browser-backed E2E
+  regression.
+
 * internal: the journey "vocabulary" (what counts as a navigation, host
   extraction, and label->slug) is now a single `journey-actions` leaf module
   instead of being duplicated across the auto-saver and the journey-summarizer.

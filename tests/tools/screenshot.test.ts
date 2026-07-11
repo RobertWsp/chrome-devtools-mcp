@@ -128,6 +128,36 @@ describe('screenshot', () => {
       });
     });
 
+    it('spills a large-edge screenshot to a file even when bytes are small', async () => {
+      // Regression: on HiDPI/full-page captures the encoded bytes stay small
+      // (a mostly-blank tall page compresses well) but the pixel height blows
+      // past the 8000px edge limit, which downstream vision APIs reject with
+      // "Could not process image". Such images must be spilled to a file.
+      await withMcpContext(async (response, context) => {
+        const page = context.getSelectedPage();
+        await page.setContent(
+          html`<div style="width: 400px; height: 12000px; background: #fff">
+            tall
+          </div>`,
+        );
+
+        await screenshot.handler(
+          {params: {format: 'png', fullPage: true}},
+          response,
+          context,
+        );
+
+        assert.equal(response.images.length, 0);
+        assert.equal(
+          response.responseLines.at(0),
+          'Took a screenshot of the full current page.',
+        );
+        assert.ok(
+          response.responseLines.at(1)?.match(/Saved screenshot to.*\.png/),
+        );
+      });
+    });
+
     it('with element uid', async () => {
       await withMcpContext(async (response, context) => {
         const fixture = screenshots.button;

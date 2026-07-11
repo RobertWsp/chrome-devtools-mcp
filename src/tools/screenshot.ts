@@ -6,6 +6,7 @@
 
 import {zod} from '../third_party/index.js';
 import type {ElementHandle, Page} from '../third_party/index.js';
+import {canInlineImage} from '../utils/image.js';
 
 import {ToolCategory} from './categories.js';
 import {defineTool} from './ToolDefinition.js';
@@ -89,7 +90,10 @@ export const screenshot = defineTool({
     if (request.params.filePath) {
       const file = await context.saveFile(screenshot, request.params.filePath);
       response.appendResponseLine(`Saved screenshot to ${file.filename}.`);
-    } else if (screenshot.length >= 2_000_000) {
+    } else if (!canInlineImage(screenshot)) {
+      // Too large to inline (by bytes or pixel edge). Spilling to a file keeps
+      // the response valid for downstream vision APIs that reject oversized
+      // images (e.g. > 8000px on any edge on HiDPI/full-page captures).
       const {filename} = await context.saveTemporaryFile(
         screenshot,
         `image/${request.params.format}`,
